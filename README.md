@@ -1,66 +1,101 @@
-# Planificador de Estudio — Frontend
+# 📚 Planificador de Estudio — Frontend
 
-Stack: React + TypeScript + Vite + Tailwind CSS v4 + React Router + Axios
+> Aplicación web para gestionar tareas académicas, materias y planificación diaria de estudio.
 
-## Estructura generada
+**Stack:** React 19 · TypeScript · Vite · TailwindCSS v4 · React Router v7 · Axios  
+**Deploy:** [planificador-personal-front.vercel.app](https://planificador-personal-front.vercel.app)  
+**Backend:** [planificador-personal-back.onrender.com](https://planificador-personal-back.onrender.com)
+
+---
+
+## 🚀 Funcionalidades
+
+- 🔐 **Autenticación con JWT** — Login y registro de usuarios con tokens firmados (7 días de sesión)
+- 📅 **Vista diaria `/hoy`** — Subtareas priorizadas: vencidas → hoy → próximas, con badge de exceso de horas
+- ➕ **Crear actividades `/crear`** — Formulario completo: título, tipo, materia (opcional), fecha, duración, prioridad y pasos
+- 🗂️ **Detalle de actividad `/actividad/:id`** — Edición inline, CRUD completo de pasos (marcar, posponer, reprogramar, editar, eliminar)
+- 📋 **Lista de actividades `/actividades`** — Vista global con filtros por estado (pendiente / en progreso / completada)
+- 📊 **Progreso `/progreso`** — Dashboard estadístico por materia y entregas próximas
+- 🎨 **Materias `/materias`** — CRUD con paleta de 12 colores personalizables
+- ⚡ **Detección de conflictos** — Alerta cuando una tarea o paso supera el límite diario de horas configurado
+
+---
+
+## 🗂️ Estructura del proyecto
 
 ```
 src/
-├── types/
-│   └── index.ts          # Tipos TypeScript (User, Task, Subject, Subtask, etc.)
-├── services/
-│   ├── api.ts            # Instancia Axios base → Render backend
-│   ├── authService.ts    # Login, register, session localStorage
-│   ├── subjectService.ts # CRUD materias
-│   ├── taskService.ts    # CRUD tareas + vista hoy
-│   └── subtaskService.ts # CRUD subtareas + check-conflict
-├── components/
-│   ├── Layout.tsx        # Shell con nav principal
-│   ├── ProtectedRoute.tsx
-│   └── TaskCard.tsx      # Tarjeta reutilizable de tarea
 ├── pages/
-│   ├── AuthPage.tsx      # Login + Registro (Sprint 1 sin JWT)
-│   ├── HoyPage.tsx       # Vista del día: Vencidas → Hoy → Próximas
-│   ├── CrearPage.tsx     # Crear tarea + subtareas
-│   ├── ActividadPage.tsx # Detalle, cambiar estado, marcar subtareas
-│   └── ProgresoPage.tsx  # Estadísticas globales y por materia
-├── App.tsx               # React Router con rutas protegidas
-├── main.tsx
-└── index.css             # @import "tailwindcss" + overrides
+│   ├── AuthPage.tsx        → /auth          — Login y registro
+│   ├── HoyPage.tsx         → /hoy           — Vista diaria de subtareas priorizadas
+│   ├── CrearPage.tsx       → /crear         — Crear tarea + pasos
+│   ├── ActividadPage.tsx   → /actividad/:id — Detalle y edición completa
+│   ├── ActividadesPage.tsx → /actividades   — Lista global con filtros
+│   ├── ProgresoPage.tsx    → /progreso      — Dashboard estadístico
+│   └── MateriasPage.tsx    → /materias      — CRUD de materias
+├── components/
+│   ├── Layout.tsx          → Shell: navbar + outlet
+│   ├── ProtectedRoute.tsx  → Guard de rutas (requiere JWT)
+│   └── TaskCard.tsx        → Tarjeta visual de tarea
+├── services/
+│   ├── api.ts              → Axios con baseURL + interceptores JWT
+│   ├── authService.ts      → Login, registro, manejo de sesión
+│   ├── taskService.ts      → CRUD tareas + checkConflict
+│   ├── subtaskService.ts   → CRUD pasos + checkConflict + weekSummary
+│   └── subjectService.ts   → CRUD materias
+└── types/
+    └── index.ts            → Interfaces TypeScript: User, Task, Subject, Subtask, etc.
 ```
 
-## Rutas
+---
 
-| Ruta | Página |
-|------|--------|
-| `/auth` | Login / Registro |
-| `/hoy` | Vista del día |
-| `/crear` | Crear actividad |
-| `/actividad/:id` | Detalle y edición |
-| `/progreso` | Progreso general |
-
-## Setup
+## ⚙️ Setup local
 
 ```bash
-# Instalar dependencias (si no están)
-npm install react-router-dom axios
+# 1. Instalar dependencias
+npm install
 
-# Iniciar dev server
+# 2. Iniciar servidor de desarrollo
 npm run dev
+# → http://localhost:5173
+
+# 3. (Opcional) Build de producción
+npm run build
 ```
 
-## Deploy Vercel
+> El frontend en local apunta a `http://localhost:8000` por defecto. Para usar el backend de Render, crea un archivo `.env.local` con:
+> ```
+> VITE_API_URL=https://planificador-personal-back.onrender.com
+> ```
 
-1. Conectar repo a Vercel
-2. Framework: Vite
-3. Build command: `npm run build`
-4. Output dir: `dist`
-5. Agregar en Settings → Environment Variables: ninguna necesaria (baseURL está hardcodeada)
+---
 
-> Para producción considera mover la baseURL a `VITE_API_URL` en `.env`
+## 🌐 Deploy en Vercel
 
-## Notas Sprint 1
+1. Conectar este repositorio a Vercel (Framework: **Vite**)
+2. En **Settings → Environment Variables**, agregar:
 
-- Sin JWT: sesión guardada en localStorage (`user_id`, `user_email`, etc.)
-- Conflicto de sobrecarga: botón ⚡ en cada subtarea en `/actividad/:id`
-- Usuario demo: `jose@gmail.com` / `123456`
+| Variable | Valor |
+|----------|-------|
+| `VITE_API_URL` | `https://planificador-personal-back.onrender.com` |
+
+3. Build command: `npm run build` · Output dir: `dist`
+
+---
+
+## 📦 Dependencias principales
+
+| Paquete | Versión | Uso |
+|---------|---------|-----|
+| `react` | ^19.2.0 | Framework UI |
+| `react-router-dom` | ^7.13.1 | Enrutamiento SPA |
+| `axios` | ^1.13.6 | Cliente HTTP |
+| `tailwindcss` | ^4.2.1 | Estilos |
+| `typescript` | ~5.9.3 | Tipado estático |
+| `vite` | ^7.3.1 | Bundler |
+
+---
+
+## 📖 Documentación adicional
+
+Ver [`ARCHITECTURE.md`](./ARCHITECTURE.md) para la arquitectura detallada, flujos de datos y documentación de componentes.
