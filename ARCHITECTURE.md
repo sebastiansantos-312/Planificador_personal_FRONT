@@ -470,11 +470,19 @@ Borrar: subjectService.delete(id)               → DELETE /subjects/{id}
 
 | Variable | Descripción | Configurada en |
 |----------|-------------|----------------|
-| `VITE_API_URL` | URL del backend FastAPI | `.env.production` (Vercel) |
+| `VITE_API_URL` | URL del backend FastAPI | `.env.local` (local) · Variables de entorno en Vercel (producción) |
 
-**Local:** No se necesita `.env` adicional. Fallback en `api.ts` usa `http://localhost:8000`.
+**Local:** Crear `.env.local` (ignorado por git) con:
+```
+VITE_API_URL=http://localhost:8000
+```
 
-> **Nota:** El archivo `.env.production` existe pero no se usa en el flujo local actual.
+**Producción (Vercel):** Configurar en Settings → Environment Variables:
+```
+VITE_API_URL=https://planificador-personal-back.onrender.com
+```
+
+> Si no se define `VITE_API_URL`, el fallback en `api.ts` usa `http://localhost:8000`.
 
 ---
 
