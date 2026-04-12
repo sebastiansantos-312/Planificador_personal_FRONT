@@ -9,33 +9,41 @@
 
 ```
 planificador_estudio_personal/FRONT/
-├── main.tsx                → Punto de entrada: monta <App /> en el DOM
-├── App.tsx                 → Define el árbol de rutas con React Router
-├── index.css               → Estilos globales base
+├── index.html              → Punto de entrada HTML
+├── package.json            → Dependencias y scripts npm
+├── vite.config.ts          → Configuración de Vite
+├── tsconfig.json           → Configuración TypeScript
+├── vercel.json             → Configuración de deploy (no usado en local)
+├── .env.production         → URL del backend en producción — NO subir a git
 │
-├── pages/                  → Una página = una ruta de la app
-│   ├── AuthPage.tsx        → /auth          — Login y registro
-│   ├── HoyPage.tsx         → /hoy           — Vista diaria de subtareas priorizadas + config límite
-│   ├── CrearPage.tsx       → /crear         — Formulario para crear tarea + pasos opcionales
-│   ├── ActividadPage.tsx   → /actividad/:id — Detalle: editar tarea, gestionar pasos (CRUD completo)
-│   ├── ActividadesPage.tsx → /actividades   — Lista global de tareas con filtros por estado
-│   ├── ProgresoPage.tsx    → /progreso      — Dashboard de estadísticas por materia
-│   └── MateriasPage.tsx    → /materias      — CRUD de materias con selector de color
-│
-├── components/             → Componentes reutilizables compartidos
-│   ├── Layout.tsx          → Shell: navbar superior + <Outlet /> de React Router
-│   ├── ProtectedRoute.tsx  → Guard: redirige a /auth si no hay sesión
-│   └── TaskCard.tsx        → Tarjeta visual de una tarea (usada en ProgresoPage)
-│
-├── services/               → Capa de acceso a la API (toda la comunicación HTTP)
-│   ├── api.ts              → Instancia Axios con baseURL + interceptores JWT
-│   ├── authService.ts      → Login, registro, sesión en localStorage
-│   ├── taskService.ts      → CRUD de tareas + vista /hoy/prioridades + checkConflict (Sprint 3)
-│   ├── subtaskService.ts   → CRUD de pasos + checkConflict + getWeekSummary (Sprint 3)
-│   └── subjectService.ts   → CRUD de materias
-│
-└── types/
-    └── index.ts            → Todas las interfaces y tipos TypeScript del proyecto
+└── src/
+    ├── main.tsx            → Monta <App /> en el DOM
+    ├── App.tsx             → Árbol de rutas con React Router
+    ├── index.css           → Estilos globales base
+    │
+    ├── pages/              → Una página = una ruta de la app
+    │   ├── AuthPage.tsx        → /auth          — Login y registro
+    │   ├── HoyPage.tsx         → /hoy           — Vista diaria de subtareas priorizadas + config límite
+    │   ├── CrearPage.tsx       → /crear         — Formulario para crear tarea + pasos opcionales
+    │   ├── ActividadPage.tsx   → /actividad/:id — Detalle: editar tarea, gestionar pasos (CRUD completo)
+    │   ├── ActividadesPage.tsx → /actividades   — Lista global de tareas con filtros por estado
+    │   ├── ProgresoPage.tsx    → /progreso      — Dashboard de estadísticas por materia
+    │   └── MateriasPage.tsx    → /materias      — CRUD de materias con selector de color
+    │
+    ├── components/         → Componentes reutilizables compartidos
+    │   ├── Layout.tsx          → Shell: navbar superior + <Outlet /> de React Router
+    │   ├── ProtectedRoute.tsx  → Guard: redirige a /auth si no hay sesión
+    │   └── TaskCard.tsx        → Tarjeta visual de una tarea (usada en ProgresoPage)
+    │
+    ├── services/           → Capa de acceso a la API (toda la comunicación HTTP)
+    │   ├── api.ts              → Instancia Axios con baseURL + interceptores JWT
+    │   ├── authService.ts      → Login, registro, sesión en localStorage
+    │   ├── taskService.ts      → CRUD de tareas + vista /hoy/prioridades + checkConflict
+    │   ├── subtaskService.ts   → CRUD de pasos + checkConflict + getWeekSummary
+    │   └── subjectService.ts   → CRUD de materias
+    │
+    └── types/
+        └── index.ts        → Todas las interfaces y tipos TypeScript del proyecto
 ```
 
 ---
