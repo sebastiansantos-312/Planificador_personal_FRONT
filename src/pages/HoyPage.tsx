@@ -389,7 +389,13 @@ export default function HoyPage() {
                             {label}
                         </h2>
                         <span className="text-slate-600 text-xs">{items.length}</span>
-                        {/* Badge de exceso de horas — solo en la sección "Para hoy" */}
+                        {/* Badge total vs límite — siempre visible en "Para hoy" */}
+                        {key === "hoy" && forToday.length > 0 && (
+                            <span className="ml-1 flex items-center gap-1 bg-slate-800/80 text-slate-400 border border-slate-700/50 text-xs font-medium px-2 py-0.5 rounded-full">
+                                ⏱ {parseFloat((totalTodayMinutes / 60).toFixed(1))}h / {limitHours}h
+                            </span>
+                        )}
+                        {/* Badge de exceso de horas — solo aparece cuando se supera el límite */}
                         {key === "hoy" && todayOverload !== null && (
                             <span className="ml-1 flex items-center gap-1 bg-red-500/15 text-red-400 border border-red-500/30 text-xs font-semibold px-2 py-0.5 rounded-full animate-pulse">
                                 ⚠️ +{todayOverload}h del límite
