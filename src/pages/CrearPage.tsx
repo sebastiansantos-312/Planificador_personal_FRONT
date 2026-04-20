@@ -16,7 +16,7 @@ import { taskService } from "../services/taskService";
 import { subtaskService } from "../services/subtaskService";
 import { subjectService } from "../services/subjectService";
 import { authService } from "../services/authService";
-import type { Subject, TaskPriority, TaskType, SubtaskCreate, LoadingState, ConflictResult } from "../types";
+import type { Subject, TaskPriority, TaskType, SubtaskCreate, LoadingState, ConflictResult, AlternativeDay, DisplaceableTask } from "../types";
 
 interface SubtaskDraft {
     title: string;
@@ -69,6 +69,11 @@ export default function CrearPage() {
 
     // Modal de advertencia de límite diario
     const [conflictData, setConflictData] = useState<ConflictResult | null>(null);
+    // Tarea candidata seleccionada para desplazar (opción B)
+    const [selectedDisplaceable, setSelectedDisplaceable] = useState<DisplaceableTask | null>(null);
+    // Día alternativo seleccionado (opción A)
+    const [selectedAltDay, setSelectedAltDay] = useState<AlternativeDay | null>(null);
+    const [displacingTask, setDisplacingTask] = useState(false);
 
     const [submitState, setSubmitState] = useState<LoadingState>("idle");
     const [errorMsg, setErrorMsg] = useState("");
@@ -124,16 +129,89 @@ export default function CrearPage() {
                     DUMMY_UUID,
                     dueDate,
                     durationMinutes,
-                    session.user_id
+                    session.user_id,
+                    priority,
                 );
                 if (result.has_conflict) {
                     setConflictData(result);
-                    return; // Esperar decisión del usuario en el modal
+                    setSelectedAltDay(null);
+                    setSelectedDisplaceable(null);
+                    return;
                 }
             } catch { /* si falla la verificación, continuar creando */ }
         }
 
         await doCreate();
+    }
+
+    /**
+     * Opción A: mueve la tarea al día alternativo seleccionado y la crea.
+     */
+    async function doCreateOnAltDay() {
+        if (!selectedAltDay) return;
+        const originalDate = dueDate;
+        setDueDate(selectedAltDay.date);
+        setConflictData(null);
+        // Pequeño truco: guardamos la fecha nueva y llamamos doCreate directamente
+        // pasando la fecha como override (usamos un state intermedio)
+        await doCreateWithDate(selectedAltDay.date);
+        // Si el usuario cancela el modal antes de confirmar, restaurar
+        void originalDate;
+    }
+
+    /**
+     * Opción B: desplaza la tarea candidata al día sugerido, luego crea la nueva.
+     */
+    async function doDisplaceAndCreate() {
+        if (!selectedDisplaceable || !selectedDisplaceable.suggested_new_date || !session) return;
+        setDisplacingTask(true);
+        try {
+            // Mover la tarea candidata al día sugerido
+            await taskService.update(selectedDisplaceable.task_id, {
+                due_date: selectedDisplaceable.suggested_new_date,
+            });
+            // Crear la nueva tarea en el día original
+            setConflictData(null);
+            await doCreate();
+        } catch {
+            setDisplacingTask(false);
+        }
+    }
+
+    /** Crea la tarea usando una fecha específica (para opción A). */
+    async function doCreateWithDate(overrideDate: string) {
+        if (!session || !taskType) return;
+        setConflictData(null);
+        setErrorMsg("");
+        setSubmitState("loading");
+        try {
+            const task = await taskService.create({
+                title,
+                task_type: taskType,
+                subject_id: subjectId || undefined,
+                user_id: session.user_id,
+                due_date: overrideDate,
+                duration_minutes: durationMinutes,
+                priority,
+                status: "pending",
+            });
+            for (const sub of subtasks) {
+                const payload: SubtaskCreate = {
+                    task_id: task.id,
+                    title: sub.title,
+                    description: sub.description || undefined,
+                    target_date: sub.target_date,
+                    estimated_minutes: sub.estimated_minutes,
+                    status: "pending",
+                };
+                await subtaskService.create(payload);
+            }
+            setSubmitState("success");
+            setTimeout(() => navigate(`/actividad/${task.id}`), 1500);
+        } catch {
+            setSubmitState("error");
+            setErrorMsg("No se pudo crear la actividad. Verifica los datos e intenta de nuevo.");
+        }
     }
 
     /** Ejecuta la creación real de la tarea y sus pasos. */
@@ -460,16 +538,15 @@ export default function CrearPage() {
                     />
 
                     {/* Panel del modal */}
-                    <div className="relative bg-slate-900 border border-amber-500/30 rounded-2xl shadow-2xl shadow-amber-500/10 p-6 w-full max-w-sm space-y-4">
+                    <div className="relative bg-slate-900 border border-amber-500/30 rounded-2xl shadow-2xl shadow-amber-500/10 p-6 w-full max-w-md space-y-4 max-h-[90vh] overflow-y-auto">
+                        {/* Encabezado */}
                         <div className="flex items-start gap-3">
                             <span className="text-2xl shrink-0">⚠️</span>
                             <div>
                                 <p id="hour-limit-title" className="text-white font-semibold text-sm">
                                     Límite diario superado
                                 </p>
-                                <p className="text-slate-400 text-xs mt-1">
-                                    Esta actividad supera el límite configurado para ese día.
-                                </p>
+                                <p className="text-slate-400 text-xs mt-1">{conflictData.message}</p>
                             </div>
                         </div>
 
@@ -489,24 +566,105 @@ export default function CrearPage() {
                             </div>
                         </div>
 
-                        <p className="text-slate-400 text-xs">
-                            Puedes crearla de todas formas o cancelar para ajustar la fecha o duración.
-                        </p>
+                        {/* ── Opción A: Mover a día alternativo ── */}
+                        {conflictData.recommendations?.alternative_days && conflictData.recommendations.alternative_days.length > 0 ? (
+                            <div className="space-y-2">
+                                <p className="text-slate-300 text-xs font-semibold uppercase tracking-wide">A · Asignar a un día disponible</p>
+                                <div className="space-y-1.5">
+                                    {conflictData.recommendations.alternative_days.map((day) => (
+                                        <button
+                                            key={day.date}
+                                            type="button"
+                                            onClick={() => setSelectedAltDay(prev => prev?.date === day.date ? null : day)}
+                                            className={`w-full text-left px-3 py-2.5 rounded-xl border text-xs transition ${
+                                                selectedAltDay?.date === day.date
+                                                    ? "bg-violet-600/20 border-violet-500/50 text-violet-300"
+                                                    : "bg-slate-800 border-slate-700 text-slate-300 hover:border-violet-500/30"
+                                            }`}
+                                        >
+                                            <span className="font-semibold">
+                                                {new Date(day.date + "T00:00:00").toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })}
+                                            </span>
+                                            <span className="text-slate-400 ml-2">{day.available_hours}h libres</span>
+                                        </button>
+                                    ))}
+                                </div>
+                                {selectedAltDay && (
+                                    <button
+                                        type="button"
+                                        onClick={doCreateOnAltDay}
+                                        disabled={isLoading}
+                                        className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-xs font-semibold py-2.5 rounded-xl transition"
+                                    >
+                                        Asignar al {new Date(selectedAltDay.date + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "long" })}
+                                    </button>
+                                )}
+                            </div>
+                        ) : (
+                            <p className="text-slate-500 text-xs italic">No hay días con espacio disponible en los próximos 7 días.</p>
+                        )}
 
-                        <div className="flex gap-2 pt-1">
+                        {/* ── Opción B: Desplazar tarea de menor prioridad ── */}
+                        {conflictData.recommendations?.displaceable_tasks && conflictData.recommendations.displaceable_tasks.length > 0 && (
+                            <div className="space-y-2">
+                                <p className="text-slate-300 text-xs font-semibold uppercase tracking-wide">B · Mover una tarea de menor prioridad</p>
+                                <div className="space-y-1.5">
+                                    {conflictData.recommendations.displaceable_tasks.map((t) => {
+                                        const priorityColors: Record<string, string> = {
+                                            alta: "text-red-400", media: "text-amber-400", baja: "text-emerald-400"
+                                        };
+                                        return (
+                                            <button
+                                                key={t.task_id}
+                                                type="button"
+                                                onClick={() => setSelectedDisplaceable(prev => prev?.task_id === t.task_id ? null : t)}
+                                                className={`w-full text-left px-3 py-2.5 rounded-xl border text-xs transition ${
+                                                    selectedDisplaceable?.task_id === t.task_id
+                                                        ? "bg-amber-500/15 border-amber-500/40 text-amber-200"
+                                                        : "bg-slate-800 border-slate-700 text-slate-300 hover:border-amber-500/30"
+                                                }`}
+                                            >
+                                                <span className="font-semibold truncate block">{t.title}</span>
+                                                <span className={`${priorityColors[t.priority] ?? "text-slate-400"} mr-2`}>{t.priority}</span>
+                                                <span className="text-slate-500">{Math.round(t.duration_minutes / 60 * 10) / 10}h</span>
+                                                {t.suggested_new_date && (
+                                                    <span className="text-slate-500 ml-2">→ {new Date(t.suggested_new_date + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "long" })}</span>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                {selectedDisplaceable && selectedDisplaceable.suggested_new_date && (
+                                    <button
+                                        type="button"
+                                        onClick={doDisplaceAndCreate}
+                                        disabled={displacingTask}
+                                        className="w-full bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 text-xs font-semibold py-2.5 rounded-xl transition disabled:opacity-40"
+                                    >
+                                        {displacingTask ? "Moviendo..." : `Mover "${selectedDisplaceable.title}" y crear aquí`}
+                                    </button>
+                                )}
+                                {selectedDisplaceable && !selectedDisplaceable.suggested_new_date && (
+                                    <p className="text-slate-500 text-xs italic">No hay espacio disponible para mover esa tarea en los próximos 7 días.</p>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ── Opciones C y D ── */}
+                        <div className="flex gap-2 pt-1 border-t border-slate-800">
                             <button
                                 type="button"
                                 onClick={doCreate}
-                                className="flex-1 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 text-sm font-semibold py-2.5 rounded-xl transition"
+                                className="flex-1 bg-slate-700/50 hover:bg-slate-700 border border-slate-600 text-slate-300 text-xs font-semibold py-2.5 rounded-xl transition"
                             >
-                                Crear de todas formas
+                                C · Crear de todas formas
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setConflictData(null)}
-                                className="flex-1 text-slate-400 hover:text-white text-sm py-2.5 rounded-xl hover:bg-slate-800 transition"
+                                onClick={() => { setConflictData(null); setSelectedAltDay(null); setSelectedDisplaceable(null); }}
+                                className="flex-1 text-slate-400 hover:text-white text-xs py-2.5 rounded-xl hover:bg-slate-800 transition"
                             >
-                                Cancelar
+                                D · Cancelar
                             </button>
                         </div>
                     </div>

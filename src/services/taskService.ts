@@ -123,13 +123,16 @@ export const taskService = {
      * @param dueDate         - Fecha límite "YYYY-MM-DD".
      * @param durationMinutes - Duración de la tarea en minutos.
      * @param userId          - UUID del usuario.
-     * @returns ConflictResult con has_conflict, horas usadas y límite.
+     * @param priority        - Prioridad de la tarea ('alta' | 'media' | 'baja').
+     *                          Necesario para calcular tareas desplazables.
+     * @returns ConflictResult con has_conflict, horas usadas, límite y recomendaciones.
      */
     async checkConflict(
         taskId: string,
         dueDate: string,
         durationMinutes: number,
         userId: string,
+        priority?: string,
     ): Promise<import("../types").ConflictResult> {
         const { data } = await api.post<import("../types").ConflictResult>(
             `/tasks/${taskId}/check-conflict`,
@@ -139,6 +142,7 @@ export const taskService = {
                     due_date: dueDate,
                     duration_minutes: durationMinutes,
                     user_id: userId,
+                    ...(priority ? { priority } : {}),
                 },
             }
         );

@@ -11,7 +11,7 @@ import { taskService } from "../services/taskService";
 import { subtaskService } from "../services/subtaskService";
 import { subjectService } from "../services/subjectService";
 import { authService } from "../services/authService";
-import type { Task, Subtask, Subject, TaskStatus, TaskPriority, TaskType, LoadingState, ConflictResult } from "../types";
+import type { Task, Subtask, Subject, TaskStatus, TaskPriority, TaskType, LoadingState, ConflictResult, AlternativeDay, DisplaceableTask } from "../types";
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
     { value: "pending", label: "Pendiente" },
@@ -94,6 +94,11 @@ export default function ActividadPage() {
     // Modal de advertencia de límite diario (al guardar edición)
     const [editConflictData, setEditConflictData] = useState<ConflictResult | null>(null);
     const [pendingEditSave, setPendingEditSave] = useState(false);
+    // Día alternativo seleccionado en el modal (opción A)
+    const [editSelectedAltDay, setEditSelectedAltDay] = useState<AlternativeDay | null>(null);
+    // Tarea desplazable seleccionada (opción B)
+    const [editSelectedDisplace, setEditSelectedDisplace] = useState<DisplaceableTask | null>(null);
+    const [editDisplacing, setEditDisplacing] = useState(false);
 
     // Sprint 3: reprogramar fecha del paso
     const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
@@ -194,10 +199,13 @@ export default function ActividadPage() {
                     task.id,
                     editDueDate,
                     editDuration,
-                    session.user_id
+                    session.user_id,
+                    editPriority,
                 );
                 if (result.has_conflict) {
                     setEditConflictData(result);
+                    setEditSelectedAltDay(null);
+                    setEditSelectedDisplace(null);
                     setPendingEditSave(true);
                     return; // Esperar decisión del usuario en el modal
                 }
@@ -208,23 +216,24 @@ export default function ActividadPage() {
     }
 
     /** Ejecuta la actualización real (tras confirmar en modal o sin conflicto). */
-    async function doSaveTaskEdits() {
+    async function doSaveTaskEdits(overrideDueDate?: string) {
         if (!task || !editTitle.trim() || !editDueDate) return;
         setEditConflictData(null);
         setPendingEditSave(false);
+        setEditSelectedAltDay(null);
+        setEditSelectedDisplace(null);
         setSavingTask(true);
         try {
             const updated = await taskService.update(task.id, {
                 title: editTitle.trim(),
-                due_date: editDueDate,
+                due_date: overrideDueDate ?? editDueDate,
                 duration_minutes: editDuration,
                 priority: editPriority,
                 task_type: editTaskType || undefined,
-                // Envía null explícito para limpiar la materia cuando se desmarca
                 subject_id: editSubjectId || null,
             });
             setTask(updated);
-            // Actualizar subject mostrado localmente
+            if (overrideDueDate) setEditDueDate(overrideDueDate);
             if (editSubjectId) {
                 const s = subjects.find(x => x.id === editSubjectId) ?? null;
                 setSubject(s);
@@ -234,6 +243,26 @@ export default function ActividadPage() {
             setEditingTask(false);
         } catch {/* ignore */}
         finally { setSavingTask(false); }
+    }
+
+    /** Opción A: guarda la edición en el día alternativo seleccionado. */
+    async function doSaveOnAltDay() {
+        if (!editSelectedAltDay) return;
+        await doSaveTaskEdits(editSelectedAltDay.date);
+    }
+
+    /** Opción B: desplaza la tarea candidata y guarda la edición en el día original. */
+    async function doDisplaceAndSave() {
+        if (!editSelectedDisplace || !editSelectedDisplace.suggested_new_date || !session) return;
+        setEditDisplacing(true);
+        try {
+            await taskService.update(editSelectedDisplace.task_id, {
+                due_date: editSelectedDisplace.suggested_new_date,
+            });
+            await doSaveTaskEdits();
+        } catch {
+            setEditDisplacing(false);
+        }
     }
 
     async function deleteTask() {
@@ -570,7 +599,7 @@ export default function ActividadPage() {
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
                             <p className="text-slate-300 text-sm font-semibold">Editar actividad</p>
-                            <button onClick={() => { setEditingTask(false); setEditConflictData(null); setPendingEditSave(false); }}
+                            <button onClick={() => { setEditingTask(false); setEditConflictData(null); setPendingEditSave(false); setEditSelectedAltDay(null); setEditSelectedDisplace(null); }}
                                 className="text-slate-500 hover:text-slate-300 text-xs px-2 py-1 rounded-lg hover:bg-slate-800 transition">
                                 ✕ Cancelar
                             </button>
@@ -671,9 +700,11 @@ export default function ActividadPage() {
                                     <span className="text-lg shrink-0">⚠️</span>
                                     <div>
                                         <p className="text-amber-300 font-semibold text-sm">Límite diario superado</p>
-                                        <p className="text-slate-400 text-xs mt-0.5">Ese día ya tiene muchas horas planificadas.</p>
+                                        <p className="text-slate-400 text-xs mt-0.5">{editConflictData.message}</p>
                                     </div>
                                 </div>
+
+                                {/* Stats */}
                                 <div className="text-xs space-y-1">
                                     <div className="flex justify-between text-slate-400">
                                         <span>Ya planificadas ese día</span>
@@ -688,21 +719,103 @@ export default function ActividadPage() {
                                         <span className="font-bold">{editConflictData.new_total_hours}h</span>
                                     </div>
                                 </div>
-                                <div className="flex gap-2">
+
+                                {/* Opción A: días alternativos */}
+                                {editConflictData.recommendations?.alternative_days && editConflictData.recommendations.alternative_days.length > 0 ? (
+                                    <div className="space-y-1.5">
+                                        <p className="text-slate-300 text-xs font-semibold uppercase tracking-wide">A · Asignar a un día disponible</p>
+                                        {editConflictData.recommendations.alternative_days.map((day) => (
+                                            <button
+                                                key={day.date}
+                                                type="button"
+                                                onClick={() => setEditSelectedAltDay(prev => prev?.date === day.date ? null : day)}
+                                                className={`w-full text-left px-3 py-2 rounded-lg border text-xs transition ${
+                                                    editSelectedAltDay?.date === day.date
+                                                        ? "bg-violet-600/20 border-violet-500/50 text-violet-300"
+                                                        : "bg-slate-800 border-slate-700 text-slate-300 hover:border-violet-500/30"
+                                                }`}
+                                            >
+                                                <span className="font-semibold">
+                                                    {new Date(day.date + "T00:00:00").toLocaleDateString("es-CO", { weekday: "short", day: "numeric", month: "short" })}
+                                                </span>
+                                                <span className="text-slate-400 ml-2">{day.available_hours}h libres</span>
+                                            </button>
+                                        ))}
+                                        {editSelectedAltDay && (
+                                            <button
+                                                type="button"
+                                                onClick={doSaveOnAltDay}
+                                                disabled={savingTask}
+                                                className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-xs font-semibold py-2 rounded-lg transition"
+                                            >
+                                                {savingTask ? "Guardando..." : `Guardar el ${new Date(editSelectedAltDay.date + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "short" })}`}
+                                            </button>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <p className="text-slate-500 text-xs italic">No hay días con espacio en los próximos 7 días.</p>
+                                )}
+
+                                {/* Opción B: desplazar tarea de menor prioridad */}
+                                {editConflictData.recommendations?.displaceable_tasks && editConflictData.recommendations.displaceable_tasks.length > 0 && (
+                                    <div className="space-y-1.5">
+                                        <p className="text-slate-300 text-xs font-semibold uppercase tracking-wide">B · Mover tarea de menor prioridad</p>
+                                        {editConflictData.recommendations.displaceable_tasks.map((t) => {
+                                            const pColors: Record<string, string> = {
+                                                alta: "text-red-400", media: "text-amber-400", baja: "text-emerald-400"
+                                            };
+                                            return (
+                                                <button
+                                                    key={t.task_id}
+                                                    type="button"
+                                                    onClick={() => setEditSelectedDisplace(prev => prev?.task_id === t.task_id ? null : t)}
+                                                    className={`w-full text-left px-3 py-2 rounded-lg border text-xs transition ${
+                                                        editSelectedDisplace?.task_id === t.task_id
+                                                            ? "bg-amber-500/15 border-amber-500/40 text-amber-200"
+                                                            : "bg-slate-800 border-slate-700 text-slate-300 hover:border-amber-500/30"
+                                                    }`}
+                                                >
+                                                    <span className="font-semibold block truncate">{t.title}</span>
+                                                    <span className={`${pColors[t.priority] ?? "text-slate-400"} mr-2`}>{t.priority}</span>
+                                                    <span className="text-slate-500">{Math.round(t.duration_minutes / 60 * 10) / 10}h</span>
+                                                    {t.suggested_new_date && (
+                                                        <span className="text-slate-500 ml-2">→ {new Date(t.suggested_new_date + "T00:00:00").toLocaleDateString("es-CO", { day: "numeric", month: "short" })}</span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                        {editSelectedDisplace && editSelectedDisplace.suggested_new_date && (
+                                            <button
+                                                type="button"
+                                                onClick={doDisplaceAndSave}
+                                                disabled={editDisplacing}
+                                                className="w-full bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 text-xs font-semibold py-2 rounded-lg transition disabled:opacity-40"
+                                            >
+                                                {editDisplacing ? "Moviendo..." : `Mover "${editSelectedDisplace.title}" y guardar aquí`}
+                                            </button>
+                                        )}
+                                        {editSelectedDisplace && !editSelectedDisplace.suggested_new_date && (
+                                            <p className="text-slate-500 text-xs italic">Sin espacio disponible en los próximos 7 días.</p>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* C y D */}
+                                <div className="flex gap-2 pt-1 border-t border-slate-700">
                                     <button
                                         type="button"
-                                        onClick={doSaveTaskEdits}
+                                        onClick={() => doSaveTaskEdits()}
                                         disabled={savingTask}
-                                        className="flex-1 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 text-xs font-semibold py-2 rounded-lg transition disabled:opacity-40"
+                                        className="flex-1 bg-slate-700/50 hover:bg-slate-700 border border-slate-600 text-slate-300 text-xs font-semibold py-2 rounded-lg transition disabled:opacity-40"
                                     >
-                                        Guardar de todas formas
+                                        C · Guardar de todas formas
                                     </button>
                                     <button
                                         type="button"
-                                        onClick={() => { setEditConflictData(null); setPendingEditSave(false); }}
+                                        onClick={() => { setEditConflictData(null); setPendingEditSave(false); setEditSelectedAltDay(null); setEditSelectedDisplace(null); }}
                                         className="flex-1 text-slate-400 hover:text-white text-xs py-2 rounded-lg hover:bg-slate-800 transition"
                                     >
-                                        Cambiar fecha
+                                        D · Cambiar fecha
                                     </button>
                                 </div>
                             </div>
@@ -717,7 +830,7 @@ export default function ActividadPage() {
                                 >
                                     {savingTask ? "Guardando..." : "Guardar cambios"}
                                 </button>
-                                <button onClick={() => { setEditingTask(false); setEditConflictData(null); setPendingEditSave(false); }}
+                                <button onClick={() => { setEditingTask(false); setEditConflictData(null); setPendingEditSave(false); setEditSelectedAltDay(null); setEditSelectedDisplace(null); }}
                                     className="flex-1 text-slate-400 hover:text-white text-sm py-2.5 rounded-xl hover:bg-slate-800 transition">
                                     Cancelar
                                 </button>

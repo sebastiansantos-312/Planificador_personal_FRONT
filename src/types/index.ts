@@ -159,6 +159,25 @@ export interface HoyGroup {
 
 // ─── Conflict Check ──────────────────────────────────────────────────────────
 
+export interface AlternativeDay {
+    date: string;
+    available_minutes: number;
+    available_hours: number;
+}
+
+export interface DisplaceableTask {
+    task_id: string;
+    title: string;
+    priority: string;
+    duration_minutes: number;
+    suggested_new_date: string | null;
+}
+
+export interface ConflictRecommendations {
+    alternative_days: AlternativeDay[];
+    displaceable_tasks: DisplaceableTask[];
+}
+
 export interface ConflictResult {
     has_conflict: boolean;
     current_minutes: number;
@@ -168,6 +187,76 @@ export interface ConflictResult {
     new_total_hours: number;
     limit_hours: number;
     message: string;
+    recommendations?: ConflictRecommendations | null;
+}
+
+// ─── Limit Change Preview ─────────────────────────────────────────────────────
+
+export interface TaskInDay {
+    task_id: string;
+    title: string;
+    priority: string;
+    duration_minutes: number;
+    duration_hours: number;
+}
+
+export interface TaskToMove {
+    task_id: string;
+    title: string;
+    priority: string;
+    duration_minutes: number;
+    suggested_date: string | null;
+}
+
+export interface AutoSuggestion {
+    description: string;
+    tasks_to_move: TaskToMove[];
+    result_minutes: number;
+}
+
+export interface AlternativeCombination {
+    label: string;
+    tasks_to_move: TaskToMove[];
+    result_minutes: number;
+}
+
+export interface CompressOption {
+    description: string;
+    available: boolean;
+}
+
+export interface DistributeDay {
+    date: string;
+    available_minutes: number;
+    available_hours: number;
+}
+
+export interface DistributeOption {
+    description: string;
+    days_available: DistributeDay[];
+}
+
+export interface DayRecommendations {
+    auto_suggestion: AutoSuggestion;
+    alternative_combinations: AlternativeCombination[];
+    compress_option: CompressOption;
+    distribute_option: DistributeOption;
+}
+
+export interface AffectedDay {
+    date: string;
+    total_minutes: number;
+    total_hours: number;
+    overflow_minutes: number;
+    overflow_hours: number;
+    tasks: TaskInDay[];
+    recommendations: DayRecommendations;
+}
+
+export interface LimitPreviewResult {
+    new_limit_minutes: number;
+    new_limit_hours: number;
+    affected_days: AffectedDay[];
 }
 
 // ─── UI helpers ──────────────────────────────────────────────────────────────

@@ -15,7 +15,8 @@ import { subjectService } from "../services/subjectService";
 import { subtaskService } from "../services/subtaskService";
 import { authService } from "../services/authService";
 import api from "../services/api";
-import type { Task, Subject, Subtask, LoadingState } from "../types";
+import type { Task, Subject, Subtask, LoadingState, LimitPreviewResult, AffectedDay, TaskInDay, TaskToMove } from "../types";
+
 
 const PRIORITY_ORDER: Record<string, number> = { alta: 0, media: 1, baja: 2 };
 
@@ -91,8 +92,18 @@ export default function HoyPage() {
     const [limitHours, setLimitHours] = useState(6);
     const [savingLimit, setSavingLimit] = useState(false);
     const [limitSaved, setLimitSaved] = useState(false);
-    // Modal emergente de días con exceso al cambiar límite
-    const [overloadModal, setOverloadModal] = useState<{ days: { date: string; total_hours: number; overflow_hours: number }[]; pendingHours: number } | null>(null);
+    // Modal enriquecido de preview de límite
+    const [limitPreview, setLimitPreview] = useState<LimitPreviewResult | null>(null);
+    const [previewDayIdx, setPreviewDayIdx] = useState(0);
+    // Opción A: checkboxes manuales
+    const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+    // Opción C: comprimir duraciones (map task_id -> minutos editados)
+    const [compressMap, setCompressMap] = useState<Record<string, number>>({});
+    // Estado de ejecución de acciones
+    const [applyingAction, setApplyingAction] = useState(false);
+    // Secciones expandidas (alt combos, impacto preview)
+    const [showAltCombos, setShowAltCombos] = useState(false);
+    const [showImpact, setShowImpact] = useState(false);
     const configRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -163,16 +174,21 @@ export default function HoyPage() {
     async function saveDailyLimit() {
         if (!session) return;
         setSavingLimit(true);
+        const newLimitMins = limitHours * 60;
         try {
-            // Verificar si el nuevo límite afecta días existentes
-            const { data: affected } = await api.get<{ date: string; total_hours: number; overflow_hours: number }[]>(
-                "/subtasks/daily-overload",
-                { params: { user_id: session.user_id, limit_minutes: limitHours * 60 } }
+            const { data } = await api.post<LimitPreviewResult>(
+                `/users/${session.user_id}/config/preview`,
+                null,
+                { params: { new_limit_minutes: newLimitMins } }
             );
             setSavingLimit(false);
-            if (affected.length > 0) {
-                // Mostrar modal emergente informativo
-                setOverloadModal({ days: affected, pendingHours: limitHours });
+            if (data.affected_days.length > 0) {
+                setLimitPreview(data);
+                setPreviewDayIdx(0);
+                setSelectedTaskIds(new Set());
+                setCompressMap({});
+                setShowAltCombos(false);
+                setShowImpact(false);
                 return;
             }
             await confirmSaveLimit(limitHours);
@@ -183,15 +199,15 @@ export default function HoyPage() {
     async function confirmSaveLimit(hours: number) {
         if (!session) return;
         setSavingLimit(true);
+        setLimitPreview(null); // cerrar modal ANTES del await para evitar race-condition con load()
         try {
             await api.patch(`/users/${session.user_id}/config`, null, {
                 params: { daily_limit_minutes: hours * 60 },
             });
             setLimitHours(hours);
             setLimitSaved(true);
-            setOverloadModal(null);
             setTimeout(() => { setLimitSaved(false); setShowConfig(false); }, 1800);
-        } catch { /* ignore */ }
+        } catch { /* ignore — el modal ya está cerrado */ }
         finally { setSavingLimit(false); }
     }
 
@@ -586,67 +602,360 @@ export default function HoyPage() {
                 </section>
             ))}
 
-            {/* ── Modal emergente: días con exceso al cambiar límite ── */}
-            {overloadModal && (
-                <div
-                    className="fixed inset-0 z-50 flex items-center justify-center p-4"
-                    role="dialog"
-                    aria-modal="true"
-                    aria-labelledby="overload-modal-title"
-                >
-                    {/* Fondo oscuro */}
-                    <div
-                        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                        onClick={() => setOverloadModal(null)}
-                    />
+            {/* ── Modal enriquecido: límite diario con recomendaciones ── */}
+            {limitPreview && (() => {
+                const day: AffectedDay = limitPreview.affected_days[previewDayIdx];
+                const totalDays = limitPreview.affected_days.length;
+                const newLimitMins = limitPreview.new_limit_minutes;
 
-                    {/* Panel del modal */}
-                    <div className="relative bg-slate-900 border border-amber-500/30 rounded-2xl shadow-2xl shadow-amber-500/10 p-6 w-full max-w-sm space-y-4">
-                        <div className="flex items-start gap-3">
-                            <span className="text-2xl shrink-0">⚠️</span>
-                            <div>
-                                <p id="overload-modal-title" className="text-white font-semibold text-sm">
-                                    Días que superan el nuevo límite
-                                </p>
-                                <p className="text-slate-400 text-xs mt-1">
-                                    Con {overloadModal.pendingHours}h/día, los siguientes días ya tienen más horas planificadas:
-                                </p>
+                // Helpers de formato
+                const fmtDate = (iso: string) =>
+                    new Date(iso + "T00:00:00").toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
+                const fmtShort = (iso: string) =>
+                    new Date(iso + "T00:00:00").toLocaleDateString("es-CO", { weekday: "short", day: "numeric", month: "short" });
+                const pColor: Record<string, string> = { alta: "text-red-400", media: "text-amber-400", baja: "text-emerald-400" };
+                const pBg: Record<string, string> = { alta: "bg-red-500/15 border-red-500/30", media: "bg-amber-500/15 border-amber-500/30", baja: "bg-emerald-500/15 border-emerald-500/30" };
+
+                // Opción A: minutos que quedarían con seleccionados
+                const selectedMins = day.tasks
+                    .filter(t => selectedTaskIds.has(t.task_id))
+                    .reduce((a, t) => a + t.duration_minutes, 0);
+                const resultAfterA = day.total_minutes - selectedMins;
+                const aIsValid = resultAfterA <= newLimitMins && selectedMins > 0;
+
+                // Opción C: total con compresión
+                const compressTotal = day.tasks.reduce((acc, t) => {
+                    const edited = compressMap[t.task_id];
+                    return acc + (edited !== undefined ? edited : t.duration_minutes);
+                }, 0);
+                const cIsValid = compressTotal <= newLimitMins && compressTotal !== day.total_minutes;
+
+                // Aplicar movimiento de tareas + guardar límite
+                async function applyMovements(tasksToMove: TaskToMove[]) {
+                    if (!session) return;
+                    setApplyingAction(true);
+                    try {
+                        for (const t of tasksToMove) {
+                            if (t.suggested_date) {
+                                await taskService.update(t.task_id, { due_date: t.suggested_date });
+                            }
+                        }
+                        await advanceOrSave();
+                    } catch { setApplyingAction(false); }
+                }
+
+                // Aplicar compresión de duraciones
+                async function applyCompress() {
+                    if (!session) return;
+                    setApplyingAction(true);
+                    try {
+                        for (const t of day.tasks) {
+                            const edited = compressMap[t.task_id];
+                            if (edited !== undefined && edited !== t.duration_minutes) {
+                                await taskService.update(t.task_id, { duration_minutes: edited });
+                            }
+                        }
+                        await advanceOrSave();
+                    } catch { setApplyingAction(false); }
+                }
+
+                // Aplicar distribución automática
+                async function applyDistribute() {
+                    if (!session) return;
+                    setApplyingAction(true);
+                    try {
+                        const days_avail = day.recommendations.distribute_option.days_available;
+                        let dayIdx2 = 0;
+                        let usedInDay: Record<string, number> = {};
+                        for (const t of day.tasks) {
+                            // Buscar día con espacio
+                            while (dayIdx2 < days_avail.length) {
+                                const avail = days_avail[dayIdx2].available_minutes - (usedInDay[days_avail[dayIdx2].date] ?? 0);
+                                if (avail >= t.duration_minutes) break;
+                                dayIdx2++;
+                            }
+                            if (dayIdx2 < days_avail.length) {
+                                const targetDate = days_avail[dayIdx2].date;
+                                await taskService.update(t.task_id, { due_date: targetDate });
+                                usedInDay[targetDate] = (usedInDay[targetDate] ?? 0) + t.duration_minutes;
+                            }
+                        }
+                        await advanceOrSave();
+                    } catch { setApplyingAction(false); }
+                }
+
+                // Aplicar opción A: mover seleccionadas manualmente
+                async function applyManualMove() {
+                    if (!aIsValid || !session) return;
+                    const toMove = day.tasks.filter(t => selectedTaskIds.has(t.task_id));
+                    const recs = day.recommendations.auto_suggestion.tasks_to_move;
+                    const payload: TaskToMove[] = toMove.map(t => {
+                        const match = recs.find(r => r.task_id === t.task_id);
+                        return { task_id: t.task_id, title: t.title, priority: t.priority, duration_minutes: t.duration_minutes, suggested_date: match?.suggested_date ?? null };
+                    });
+                    await applyMovements(payload);
+                }
+
+                async function advanceOrSave() {
+                    setApplyingAction(false);
+                    if (previewDayIdx < totalDays - 1) {
+                        setPreviewDayIdx(i => i + 1);
+                        setSelectedTaskIds(new Set());
+                        setCompressMap({});
+                        setShowAltCombos(false);
+                        setShowImpact(false);
+                    } else {
+                        await confirmSaveLimit(limitHours); // esperar a que el límite se guarde
+                        load(); // recargar tareas DESPUÉS de que el modal se cerró
+                    }
+                }
+
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="limit-modal-title">
+                        <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setLimitPreview(null)} />
+                        <div className="relative bg-slate-900 border border-amber-500/30 rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto flex flex-col">
+
+                            {/* ── Encabezado del modal ── */}
+                            <div className="sticky top-0 bg-slate-900 border-b border-slate-800 px-6 pt-5 pb-4 z-10">
+                                {totalDays > 1 && (
+                                    <div className="flex items-center justify-between mb-3">
+                                        <button onClick={() => previewDayIdx > 0 && setPreviewDayIdx(i => i - 1)}
+                                            disabled={previewDayIdx === 0}
+                                            className="text-slate-500 hover:text-slate-300 disabled:opacity-30 text-xs px-2 py-1 rounded-lg hover:bg-slate-800 transition">← Anterior</button>
+                                        <span className="text-slate-400 text-xs font-medium">Día {previewDayIdx + 1} de {totalDays}</span>
+                                        <button onClick={() => previewDayIdx < totalDays - 1 && setPreviewDayIdx(i => i + 1)}
+                                            disabled={previewDayIdx === totalDays - 1}
+                                            className="text-slate-500 hover:text-slate-300 disabled:opacity-30 text-xs px-2 py-1 rounded-lg hover:bg-slate-800 transition">Siguiente →</button>
+                                    </div>
+                                )}
+                                <div className="flex items-start gap-3">
+                                    <span className="text-2xl shrink-0">⚠️</span>
+                                    <div>
+                                        <p id="limit-modal-title" className="text-white font-bold text-sm capitalize">{fmtDate(day.date)}</p>
+                                        <div className="flex gap-3 mt-1 text-xs">
+                                            <span className="text-slate-400">{day.total_hours}h planificadas</span>
+                                            <span className="text-slate-600">/</span>
+                                            <span className="text-amber-400 font-semibold">{limitPreview.new_limit_hours}h nuevo límite</span>
+                                            <span className="text-red-400 font-semibold">+{day.overflow_hours}h exceso</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="px-6 py-4 space-y-5">
+
+                                {/* Tareas del día */}
+                                <div>
+                                    <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Tareas de este día</p>
+                                    <div className="space-y-1.5">
+                                        {day.tasks.map((t: TaskInDay) => (
+                                            <div key={t.task_id} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border text-xs ${pBg[t.priority] ?? "bg-slate-800 border-slate-700"}`}>
+                                                <input
+                                                    type="checkbox"
+                                                    id={`chk-${t.task_id}`}
+                                                    checked={selectedTaskIds.has(t.task_id)}
+                                                    onChange={e => {
+                                                        const next = new Set(selectedTaskIds);
+                                                        e.target.checked ? next.add(t.task_id) : next.delete(t.task_id);
+                                                        setSelectedTaskIds(next);
+                                                    }}
+                                                    className="accent-violet-500 w-4 h-4 shrink-0"
+                                                />
+                                                <label htmlFor={`chk-${t.task_id}`} className="flex-1 cursor-pointer">
+                                                    <span className="font-semibold text-white">{t.title}</span>
+                                                    <span className={`ml-2 ${pColor[t.priority] ?? "text-slate-400"}`}>{t.priority}</span>
+                                                    <span className="text-slate-500 ml-2">{t.duration_hours}h</span>
+                                                </label>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* ── Opción A: Mover seleccionadas manualmente ── */}
+                                <div className="space-y-2">
+                                    <p className="text-slate-300 text-xs font-semibold uppercase tracking-wide">A · Mover tareas seleccionadas</p>
+                                    {selectedMins > 0 && (
+                                        <p className={`text-xs ${aIsValid ? "text-emerald-400" : "text-amber-400"}`}>
+                                            Seleccionadas: {(selectedMins / 60).toFixed(1)}h → El día quedaría en <strong>{(resultAfterA / 60).toFixed(1)}h</strong>
+                                            {aIsValid ? " ✓" : ` (aún ${((resultAfterA - newLimitMins) / 60).toFixed(1)}h sobre el límite)`}
+                                        </p>
+                                    )}
+                                    <button
+                                        onClick={applyManualMove}
+                                        disabled={!aIsValid || applyingAction}
+                                        className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-30 text-white text-xs font-semibold py-2.5 rounded-xl transition"
+                                    >
+                                        {applyingAction ? "Aplicando..." : "Mover seleccionadas"}
+                                    </button>
+                                </div>
+
+                                {/* ── Opción B: Recomendación automática ── */}
+                                {day.recommendations.auto_suggestion.tasks_to_move.length > 0 && (
+                                    <div className="space-y-2">
+                                        <p className="text-slate-300 text-xs font-semibold uppercase tracking-wide">B · Recomendación automática</p>
+                                        <div className="bg-violet-500/10 border border-violet-500/30 rounded-xl p-3 space-y-2">
+                                            <p className="text-violet-300 text-xs">{day.recommendations.auto_suggestion.description}</p>
+                                            <ul className="space-y-1">
+                                                {day.recommendations.auto_suggestion.tasks_to_move.map((t: TaskToMove) => (
+                                                    <li key={t.task_id} className="text-xs text-slate-400">
+                                                        <span className={pColor[t.priority] ?? ""}>{t.priority}</span>
+                                                        {" "}<span className="text-white">"{t.title}"</span>
+                                                        {" "}→{" "}
+                                                        {t.suggested_date
+                                                            ? <span className="text-violet-300">{fmtShort(t.suggested_date)}</span>
+                                                            : <span className="text-slate-600 italic">sin espacio disponible</span>}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                            <button
+                                                onClick={() => applyMovements(day.recommendations.auto_suggestion.tasks_to_move)}
+                                                disabled={applyingAction}
+                                                className="w-full bg-violet-600 hover:bg-violet-500 disabled:opacity-30 text-white text-xs font-semibold py-2 rounded-lg transition"
+                                            >
+                                                {applyingAction ? "Aplicando..." : "Aplicar recomendación"}
+                                            </button>
+                                        </div>
+
+                                        {day.recommendations.alternative_combinations.length > 0 && (
+                                            <div>
+                                                <button onClick={() => setShowAltCombos(v => !v)}
+                                                    className="text-slate-500 hover:text-slate-300 text-xs py-1 transition">
+                                                    {showAltCombos ? "▾" : "▸"} Ver otras opciones
+                                                </button>
+                                                {showAltCombos && (
+                                                    <div className="space-y-2 mt-2">
+                                                        {day.recommendations.alternative_combinations.map((combo, i) => (
+                                                            <div key={i} className="bg-slate-800 border border-slate-700 rounded-xl p-3 space-y-2">
+                                                                <p className="text-xs text-slate-300">{combo.label}</p>
+                                                                <p className="text-xs text-slate-500">Resultado: {(combo.result_minutes / 60).toFixed(1)}h</p>
+                                                                <button
+                                                                    onClick={() => applyMovements(combo.tasks_to_move)}
+                                                                    disabled={applyingAction}
+                                                                    className="w-full bg-slate-700 hover:bg-slate-600 text-white text-xs font-semibold py-1.5 rounded-lg transition disabled:opacity-30"
+                                                                >
+                                                                    Aplicar esta opción
+                                                                </button>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* ── Opción C: Comprimir duraciones ── */}
+                                {day.recommendations.compress_option.available && (
+                                    <div className="space-y-2">
+                                        <p className="text-slate-300 text-xs font-semibold uppercase tracking-wide">C · Reducir duraciones</p>
+                                        <div className="space-y-1.5">
+                                            {day.tasks.map((t: TaskInDay) => (
+                                                <div key={t.task_id} className="flex items-center gap-3 text-xs">
+                                                    <span className="flex-1 text-slate-400 truncate">{t.title}</span>
+                                                    <input
+                                                        type="number" min={5}
+                                                        value={compressMap[t.task_id] ?? t.duration_minutes}
+                                                        onChange={e => setCompressMap(prev => ({ ...prev, [t.task_id]: Number(e.target.value) }))}
+                                                        className="w-20 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-white text-xs focus:outline-none focus:ring-2 focus:ring-violet-500"
+                                                    />
+                                                    <span className="text-slate-600 w-6">min</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <p className={`text-xs ${cIsValid ? "text-emerald-400" : "text-amber-400"}`}>
+                                            Total: <strong>{(compressTotal / 60).toFixed(1)}h</strong>
+                                            {cIsValid ? " ✔ dentro del límite" : ` (aún ${((compressTotal - newLimitMins) / 60).toFixed(1)}h sobre el límite)`}
+                                        </p>
+                                        <button
+                                            onClick={applyCompress}
+                                            disabled={!cIsValid || applyingAction}
+                                            className="w-full bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 text-xs font-semibold py-2 rounded-xl transition disabled:opacity-30"
+                                        >
+                                            {applyingAction ? "Guardando..." : "Guardar con estas duraciones"}
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* ── Opción D: Distribuir automáticamente ── */}
+                                {day.recommendations.distribute_option.days_available.length > 0 && (
+                                    <div className="space-y-2">
+                                        <p className="text-slate-300 text-xs font-semibold uppercase tracking-wide">D · Distribuir en días disponibles</p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {day.recommendations.distribute_option.days_available.map(d => (
+                                                <span key={d.date} className="bg-slate-800 border border-slate-700 text-slate-300 text-xs px-2 py-1 rounded-lg">
+                                                    {fmtShort(d.date)} · {d.available_hours}h libres
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <button
+                                            onClick={applyDistribute}
+                                            disabled={applyingAction}
+                                            className="w-full bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white text-xs font-semibold py-2 rounded-xl transition disabled:opacity-30"
+                                        >
+                                            {applyingAction ? "Distribuyendo..." : "Distribuir automáticamente"}
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* ── Opción E: Vista previa del impacto ── */}
+                                <div>
+                                    <button onClick={() => setShowImpact(v => !v)}
+                                        className="text-slate-500 hover:text-slate-300 text-xs py-1 transition flex items-center gap-1">
+                                        {showImpact ? "▾" : "▸"} Ver cómo quedarían los días
+                                    </button>
+                                    {showImpact && (
+                                        <div className="mt-2 rounded-xl border border-slate-700 overflow-hidden text-xs">
+                                            <div className="grid grid-cols-3 bg-slate-800 text-slate-400 font-medium px-3 py-2">
+                                                <span>Día</span>
+                                                <span className="text-center">Actual</span>
+                                                <span className="text-right">Después</span>
+                                            </div>
+                                            <div className="grid grid-cols-3 px-3 py-2 border-t border-slate-700">
+                                                <span className="text-white capitalize">{fmtShort(day.date)}</span>
+                                                <span className="text-center text-amber-400">{day.total_hours}h</span>
+                                                <span className={`text-right font-semibold ${
+                                                    aIsValid ? "text-emerald-400" :
+                                                    cIsValid ? "text-emerald-400" :
+                                                    "text-slate-400"
+                                                }`}>
+                                                    {aIsValid ? (resultAfterA / 60).toFixed(1) :
+                                                     cIsValid ? (compressTotal / 60).toFixed(1) :
+                                                     day.total_hours}h
+                                                </span>
+                                            </div>
+                                            {day.recommendations.distribute_option.days_available.slice(0, 3).map(d => (
+                                                <div key={d.date} className="grid grid-cols-3 px-3 py-2 border-t border-slate-800">
+                                                    <span className="text-slate-400 capitalize">{fmtShort(d.date)}</span>
+                                                    <span className="text-center text-slate-500">{((newLimitMins - d.available_minutes) / 60).toFixed(1)}h</span>
+                                                    <span className="text-right text-slate-400">—</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                            </div>
+
+                            {/* ── Pie del modal ── */}
+                            <div className="sticky bottom-0 bg-slate-900 border-t border-slate-800 px-6 py-4 flex gap-2">
+                                <button
+                                    onClick={() => { confirmSaveLimit(limitHours); }}
+                                    disabled={savingLimit || applyingAction}
+                                    className="flex-1 bg-slate-700/60 hover:bg-slate-700 border border-slate-600 text-slate-300 text-xs font-semibold py-2.5 rounded-xl transition disabled:opacity-40"
+                                >
+                                    {savingLimit ? "Guardando..." : "Guardar límite de todas formas"}
+                                </button>
+                                <button
+                                    onClick={() => setLimitPreview(null)}
+                                    className="flex-1 text-slate-400 hover:text-white text-xs py-2.5 rounded-xl hover:bg-slate-800 transition"
+                                >
+                                    Cancelar
+                                </button>
                             </div>
                         </div>
-
-                        <ul className="bg-slate-800/70 rounded-xl p-3 space-y-1.5">
-                            {overloadModal.days.map(d => (
-                                <li key={d.date} className="flex justify-between text-xs">
-                                    <span className="text-slate-300">{d.date}</span>
-                                    <span className="text-amber-400 font-semibold">{d.total_hours}h &nbsp;<span className="text-slate-500 font-normal">(+{d.overflow_hours}h exceso)</span></span>
-                                </li>
-                            ))}
-                        </ul>
-
-                        <p className="text-slate-400 text-xs">
-                            Puedes guardar el nuevo límite de todas formas, o cancelar y ajustar el valor.
-                        </p>
-
-                        <div className="flex gap-2 pt-1">
-                            <button
-                                type="button"
-                                onClick={() => confirmSaveLimit(overloadModal.pendingHours)}
-                                disabled={savingLimit}
-                                className="flex-1 bg-amber-600/20 hover:bg-amber-600/30 border border-amber-500/30 text-amber-300 text-sm font-semibold py-2.5 rounded-xl transition disabled:opacity-40"
-                            >
-                                {savingLimit ? "Guardando..." : "Guardar de todas formas"}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setOverloadModal(null)}
-                                className="flex-1 text-slate-400 hover:text-white text-sm py-2.5 rounded-xl hover:bg-slate-800 transition"
-                            >
-                                Cancelar
-                            </button>
-                        </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
         </div>
     );
 }
