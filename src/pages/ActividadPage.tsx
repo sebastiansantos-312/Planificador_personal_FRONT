@@ -44,6 +44,7 @@ const STATUS_ACTIVE_STYLES: Record<string, string> = {
     pending: "bg-slate-600 border-slate-500 text-white",
     in_progress: "bg-violet-600 border-violet-500 text-white shadow-md shadow-violet-500/20",
     done: "bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-500/20",
+    postponed: "bg-amber-600 border-amber-500 text-white shadow-md shadow-amber-500/20",
 };
 
 const TASK_TYPE_ICONS: Record<string, string> = {
@@ -135,6 +136,13 @@ export default function ActividadPage() {
     // Sprint 4: feedback visual al cambiar estado
     const [recentFeedback, setRecentFeedback] = useState<Record<string, string>>({});
 
+    // Menú 3 puntos de subtarea
+    const [openMenuSubtaskId, setOpenMenuSubtaskId] = useState<string | null>(null);
+
+    // Sprint 4: posponer actividad (task-level)
+    const [showTaskPostpone, setShowTaskPostpone] = useState(false);
+    const [taskPostponeNote, setTaskPostponeNote] = useState("");
+
     useEffect(() => {
         if (!session) { navigate("/auth"); return; }
         if (!id) return;
@@ -159,11 +167,18 @@ export default function ActividadPage() {
         }
     }
 
-    async function updateTaskStatus(status: TaskStatus) {
+    async function updateTaskStatus(status: string, postponeNote?: string) {
         if (!task) return;
         setUpdatingStatus(true);
         try {
-            const updated = await taskService.update(task.id, { status });
+            const payload: Record<string, unknown> = { status };
+            if (status === "postponed") {
+                payload.postpone_note = postponeNote ?? "";
+            } else if (task.status === "postponed") {
+                // Al salir de pospuesta, limpiar la nota
+                payload.postpone_note = "";
+            }
+            const updated = await taskService.update(task.id, payload);
             setTask(updated);
         } catch {/* ignore */ }
         finally { setUpdatingStatus(false); }
@@ -291,8 +306,10 @@ export default function ActividadPage() {
                 setRecentFeedback((prev) => ({ ...prev, [sub.id]: "done" }));
                 setTimeout(() => setRecentFeedback((prev) => { const n = { ...prev }; delete n[sub.id]; return n; }), 2000);
             }
-        } catch {/* ignore */ }
-        finally { setSavingAdvance(null); }
+        } catch {
+            setRecentFeedback((prev) => ({ ...prev, [sub.id]: "error" }));
+            setTimeout(() => setRecentFeedback((prev) => { const n = { ...prev }; delete n[sub.id]; return n; }), 3000);
+        } finally { setSavingAdvance(null); }
     }
 
     // ── Sprint 4: abrir panel de posponer ────────────────────────────────────
@@ -321,8 +338,10 @@ export default function ActividadPage() {
             setRecentFeedback((prev) => ({ ...prev, [sub.id]: "postponed" }));
             setTimeout(() => setRecentFeedback((prev) => { const n = { ...prev }; delete n[sub.id]; return n; }), 2000);
             cancelPostpone();
-        } catch {/* ignore */ }
-        finally { setSavingAdvance(null); }
+        } catch {
+            setRecentFeedback((prev) => ({ ...prev, [sub.id]: "error" }));
+            setTimeout(() => setRecentFeedback((prev) => { const n = { ...prev }; delete n[sub.id]; return n; }), 3000);
+        } finally { setSavingAdvance(null); }
     }
 
     // ── Sprint 4: volver a pendiente ─────────────────────────────────────────
@@ -335,8 +354,10 @@ export default function ActividadPage() {
                 postpone_note: "",
             });
             setSubtasks((prev) => prev.map((s) => s.id === sub.id ? updated : s));
-        } catch {/* ignore */ }
-        finally { setSavingAdvance(null); }
+        } catch {
+            setRecentFeedback((prev) => ({ ...prev, [sub.id]: "error" }));
+            setTimeout(() => setRecentFeedback((prev) => { const n = { ...prev }; delete n[sub.id]; return n; }), 3000);
+        } finally { setSavingAdvance(null); }
     }
 
     // ── Sprint 3: editar fecha ───────────────────────────────────────────────
@@ -866,10 +887,18 @@ export default function ActividadPage() {
 
                 {/* Estado — siempre visible */}
                 <div>
-                    <p className="text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider">Estado</p>
+                    <p className="text-xs font-medium text-slate-500 mb-2 uppercase tracking-wider">Estado de la actividad</p>
+
+                    {/* Nota de posposición (si ya está pospuesta) */}
+                    {task.status === "postponed" && task.postpone_note && (
+                        <p className="text-xs text-amber-300/80 italic mb-2 bg-amber-500/10 border border-amber-500/20 px-3 py-2 rounded-lg">
+                            {task.postpone_note}
+                        </p>
+                    )}
+
                     <div className="flex gap-2 flex-wrap">
                         {STATUS_OPTIONS.map(({ value, label }) => (
-                            <button key={value} onClick={() => updateTaskStatus(value)} disabled={updatingStatus}
+                            <button key={value} onClick={() => { updateTaskStatus(value); setShowTaskPostpone(false); }} disabled={updatingStatus}
                                 className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:opacity-50
                                     ${task.status === value ? STATUS_ACTIVE_STYLES[value] : "bg-slate-800 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600"}`}
                                 aria-pressed={task.status === value}
@@ -877,7 +906,55 @@ export default function ActividadPage() {
                                 {label}
                             </button>
                         ))}
+
+                        {/* Botón Posponer — Sprint 4 */}
+                        {task.status !== "done" && !showTaskPostpone && (
+                            <button
+                                onClick={() => { setShowTaskPostpone(true); setTaskPostponeNote(task.postpone_note ?? ""); }}
+                                disabled={updatingStatus}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 disabled:opacity-50
+                                    ${task.status === "postponed" ? STATUS_ACTIVE_STYLES["postponed"] : "bg-slate-800 border-slate-700 text-amber-400 hover:border-amber-500/50"}`}
+                                aria-pressed={task.status === "postponed"}
+                            >
+                                Posponer
+                            </button>
+                        )}
                     </div>
+
+                    {/* Panel de nota de posposición */}
+                    {showTaskPostpone && (
+                        <div className="mt-3 space-y-2">
+                            <label className="text-xs text-slate-400 block">
+                                ¿Por qué pospones la actividad? <span className="text-slate-600">(opcional)</span>
+                            </label>
+                            <input
+                                type="text"
+                                value={taskPostponeNote}
+                                onChange={e => setTaskPostponeNote(e.target.value)}
+                                placeholder="Ej: Se cruzaron los exámenes de la semana..."
+                                autoFocus
+                                className="w-full bg-slate-800 border border-amber-500/30 rounded-lg px-3 py-2 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 transition"
+                            />
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={async () => {
+                                        await updateTaskStatus("postponed", taskPostponeNote);
+                                        setShowTaskPostpone(false);
+                                    }}
+                                    disabled={updatingStatus}
+                                    className="bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition"
+                                >
+                                    {updatingStatus ? "Guardando..." : "Confirmar posposición"}
+                                </button>
+                                <button
+                                    onClick={() => setShowTaskPostpone(false)}
+                                    className="text-slate-500 hover:text-slate-300 text-xs px-3 py-1.5 rounded-lg transition"
+                                >
+                                    Cancelar
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -886,20 +963,20 @@ export default function ActividadPage() {
             <section aria-labelledby="subtasks-heading">
                 <div className="flex items-center justify-between mb-3">
                     <h2 id="subtasks-heading" className="text-sm font-semibold text-slate-400 uppercase tracking-widest">
-                        Pasos {subtasks.length > 0 && `(${completedCount}/${subtasks.length})`}
+                        Subtareas {subtasks.length > 0 && `(${completedCount}/${subtasks.length})`}
                     </h2>
                     {!showAddStep && (
                         <button
                             onClick={() => setShowAddStep(true)}
                             className="text-violet-400 hover:text-violet-300 text-xs font-semibold flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-violet-500/10 transition"
                         >
-                            + Agregar paso
+                            + Agregar subtarea
                         </button>
                     )}
                 </div>
 
                 {subtasks.length === 0 && !showAddStep && (
-                    <p className="text-slate-600 text-sm italic py-4 pl-1">Esta actividad no tiene pasos aún.</p>
+                    <p className="text-slate-600 text-sm italic py-4 pl-1">Esta actividad no tiene subtareas aún.</p>
                 )}
 
                 <div className="space-y-2">
@@ -919,9 +996,18 @@ export default function ActividadPage() {
 
                                 {/* Feedback temporal */}
                                 {feedback && (
-                                    <div className={`text-xs font-semibold mb-2 px-2 py-1 rounded-lg text-center
-                                        ${feedback === "done" ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-400"}`}>
-                                        {feedback === "done" ? "✅ ¡Paso completado!" : "⏭ Paso pospuesto"}
+                                    <div className={`text-xs font-semibold mb-2 px-2 py-1 rounded-lg text-center ${
+                                        feedback === "done"
+                                            ? "bg-emerald-500/20 text-emerald-400"
+                                            : feedback === "error"
+                                                ? "bg-red-500/20 text-red-400"
+                                                : "bg-amber-500/20 text-amber-400"
+                                    }`}>
+                                        {feedback === "done"
+                                            ? "Paso completado"
+                                            : feedback === "error"
+                                                ? "Error al guardar. Intenta de nuevo."
+                                                : "Paso pospuesto"}
                                     </div>
                                 )}
 
@@ -936,7 +1022,7 @@ export default function ActividadPage() {
                                         role="checkbox" aria-checked={isDone}
                                     >
                                         {isDone && <span className="text-white text-xs font-bold">✓</span>}
-                                        {isPostponed && <span className="text-amber-400 text-xs">⏭</span>}
+                                        {isPostponed && <span className="text-amber-400 text-[9px] font-bold leading-none">—</span>}
                                     </button>
 
                                     {/* Contenido */}
@@ -982,7 +1068,7 @@ export default function ActividadPage() {
                                                 )}
 
                                                 {isPostponed && sub.postpone_note && (
-                                                    <p className="text-xs text-amber-300/70 mt-1 italic">📝 {sub.postpone_note}</p>
+                                                    <p className="text-xs text-amber-300/70 mt-1 italic">{sub.postpone_note}</p>
                                                 )}
 
                                                 {sub.description && !isPostponed && (
@@ -1055,31 +1141,87 @@ export default function ActividadPage() {
                                         )}
                                     </div>
 
-                                    {/* Botones de acción */}
+                                    {/* Menú 3 puntos — Sprint 4 */}
                                     {!isEditingContent && !isEditing && !isPostponing && (
-                                        <div className="flex gap-1 shrink-0">
-                                            {!isDone && !isPostponed && (
-                                                <button onClick={() => startPostpone(sub)} disabled={isSaving || isDeleting}
-                                                    className="text-slate-600 hover:text-amber-400 text-sm transition rounded disabled:opacity-40"
-                                                    title="Posponer" aria-label="Posponer este paso">⏭</button>
-                                            )}
-                                            {!isDone && !isPostponed && (
-                                                <button onClick={() => startEditing(sub)} disabled={isSaving || isDeleting}
-                                                    className="text-slate-600 hover:text-violet-400 text-sm transition rounded disabled:opacity-40"
-                                                    title="Reprogramar fecha" aria-label="Editar fecha del paso">📅</button>
-                                            )}
-                                            {/* Editar título/descripción */}
-                                            <button onClick={() => startEditingContent(sub)} disabled={isSaving || isDeleting}
-                                                className="text-slate-600 hover:text-violet-400 text-sm transition rounded disabled:opacity-40"
-                                                title="Editar nombre" aria-label="Editar nombre del paso">✏️</button>
-                                            {/* Eliminar */}
-                                            <button onClick={() => deleteSubtask(sub.id)} disabled={isSaving || isDeleting}
-                                                className="text-slate-600 hover:text-red-400 text-sm transition rounded disabled:opacity-40"
-                                                title="Eliminar paso" aria-label="Eliminar este paso">
-                                                {isDeleting ? (
-                                                    <span className="w-3 h-3 border border-red-400 border-t-transparent rounded-full animate-spin inline-block" />
-                                                ) : "🗑"}
+                                        <div className="relative shrink-0">
+                                            <button
+                                                onClick={() => setOpenMenuSubtaskId(prev => prev === sub.id ? null : sub.id)}
+                                                disabled={isSaving || isDeleting}
+                                                className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 transition disabled:opacity-40"
+                                                aria-label="Opciones de subtarea"
+                                                title="Opciones"
+                                            >
+                                                {isDeleting
+                                                    ? <span className="w-3 h-3 border border-slate-400 border-t-transparent rounded-full animate-spin inline-block" />
+                                                    : <span className="text-base leading-none">&#8942;</span>
+                                                }
                                             </button>
+
+                                            {openMenuSubtaskId === sub.id && (
+                                                <>
+                                                    {/* Overlay para cerrar */}
+                                                    <div
+                                                        className="fixed inset-0 z-40"
+                                                        onClick={() => setOpenMenuSubtaskId(null)}
+                                                    />
+                                                    <div className="absolute right-0 top-8 z-50 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-1 min-w-[180px]">
+                                                        {/* Marcar hecha / Desmarcar */}
+                                                        {!isPostponed && (
+                                                            <button
+                                                                onClick={() => { setOpenMenuSubtaskId(null); markDone(sub); }}
+                                                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-700 transition"
+                                                            >
+                                                                <span className={isDone ? "text-slate-300" : "text-emerald-400 font-medium"}>
+                                                                    {isDone ? "Desmarcar" : "Marcar como hecha"}
+                                                                </span>
+                                                            </button>
+                                                        )}
+                                                        {/* Posponer */}
+                                                        {!isDone && !isPostponed && (
+                                                            <button
+                                                                onClick={() => { setOpenMenuSubtaskId(null); startPostpone(sub); }}
+                                                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-700 transition"
+                                                            >
+                                                                <span className="text-amber-400 font-medium">Posponer</span>
+                                                            </button>
+                                                        )}
+                                                        {/* Volver a pendiente */}
+                                                        {isPostponed && (
+                                                            <button
+                                                                onClick={() => { setOpenMenuSubtaskId(null); markPending(sub); }}
+                                                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-700 transition"
+                                                            >
+                                                                <span className="text-slate-300">Volver a pendiente</span>
+                                                            </button>
+                                                        )}
+                                                        {/* Reprogramar fecha */}
+                                                        {!isDone && !isPostponed && (
+                                                            <button
+                                                                onClick={() => { setOpenMenuSubtaskId(null); startEditing(sub); }}
+                                                                className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-700 transition"
+                                                            >
+                                                                <span className="text-slate-300">Reprogramar</span>
+                                                            </button>
+                                                        )}
+                                                        {/* Editar nombre */}
+                                                        <button
+                                                            onClick={() => { setOpenMenuSubtaskId(null); startEditingContent(sub); }}
+                                                            className="w-full text-left px-4 py-2.5 text-sm hover:bg-slate-700 transition"
+                                                        >
+                                                            <span className="text-slate-300">Editar nombre</span>
+                                                        </button>
+                                                        {/* Separador */}
+                                                        <div className="my-1 border-t border-slate-700" />
+                                                        {/* Eliminar */}
+                                                        <button
+                                                            onClick={() => { setOpenMenuSubtaskId(null); deleteSubtask(sub.id); }}
+                                                            className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-500/10 transition"
+                                                        >
+                                                            <span className="text-red-400">Eliminar subtarea</span>
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -1091,11 +1233,11 @@ export default function ActividadPage() {
                 {/* ── Formulario de agregar paso ── */}
                 {showAddStep && (
                     <div className="mt-3 bg-slate-800/60 border border-violet-500/20 rounded-2xl p-4 space-y-3">
-                        <p className="text-xs font-semibold text-slate-300">Nuevo paso</p>
+                        <p className="text-xs font-semibold text-slate-300">Nueva subtarea</p>
                         <input
                             type="text" value={newStepTitle}
                             onChange={e => setNewStepTitle(e.target.value)}
-                            placeholder="Título del paso *"
+                            placeholder="Título de la subtarea *"
                             autoFocus
                             className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition"
                         />
@@ -1129,7 +1271,7 @@ export default function ActividadPage() {
                                 disabled={addingStep || !newStepTitle.trim() || !newStepDate}
                                 className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white text-sm font-semibold py-2.5 rounded-xl transition"
                             >
-                                {addingStep ? "Agregando..." : "Agregar paso"}
+                                {addingStep ? "Agregando..." : "Agregar subtarea"}
                             </button>
                             <button
                                 onClick={() => { setShowAddStep(false); setNewStepTitle(""); setNewStepDesc(""); setNewStepDate(""); setNewStepMinutes(30); }}
@@ -1145,7 +1287,7 @@ export default function ActividadPage() {
             <div className="pt-4 border-t border-slate-800">
                 <button onClick={deleteTask} disabled={deletingTask}
                     className="w-full text-red-500/70 hover:text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 text-sm font-medium py-3 rounded-xl transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-40">
-                    {deletingTask ? "Eliminando..." : "🗑 Eliminar actividad"}
+                    {deletingTask ? "Eliminando..." : "Eliminar actividad"}
                 </button>
             </div>
         </div>

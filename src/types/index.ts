@@ -60,7 +60,7 @@ export interface SubjectCreateByEmail {
 // ─── Task ────────────────────────────────────────────────────────────────────
 
 export type TaskPriority = "alta" | "media" | "baja";
-export type TaskStatus = "pending" | "in_progress" | "done";
+export type TaskStatus = "pending" | "in_progress" | "done" | "postponed";
 
 /** Tipos de actividad válidos — requerido por US-01. */
 export type TaskType =                                            // ← NUEVO (US-01)
@@ -81,6 +81,7 @@ export interface Task {
     duration_minutes: number;
     priority: TaskPriority;
     status: TaskStatus;
+    postpone_note?: string;                                       // ← Sprint 4
     created_at?: string;
 }
 
@@ -102,7 +103,8 @@ export interface TaskUpdate {
     due_date?: string;
     duration_minutes?: number;
     priority?: TaskPriority;
-    status?: TaskStatus;
+    status?: TaskStatus | string;
+    postpone_note?: string;                                       // ← Sprint 4
 }
 
 // ─── Subtask ─────────────────────────────────────────────────────────────────

@@ -87,6 +87,12 @@ export default function HoyPage() {
     const [subtaskCache, setSubtaskCache] = useState<Record<string, Subtask[]>>({});
     const [loadingSubtasks, setLoadingSubtasks] = useState<string | null>(null);
 
+    // Sprint 4: marcar hecha / posponer desde /hoy
+    const [savingSubtaskId, setSavingSubtaskId] = useState<string | null>(null);
+    const [hoyPostponingId, setHoyPostponingId] = useState<string | null>(null);
+    const [hoyPostponeNote, setHoyPostponeNote] = useState("");
+    const [hoyFeedback, setHoyFeedback] = useState<Record<string, string>>({});
+
     // Configuración de límite diario
     const [showConfig, setShowConfig] = useState(false);
     const [limitHours, setLimitHours] = useState(6);
@@ -224,6 +230,71 @@ export default function HoyPage() {
             setSubtaskCache(prev => ({ ...prev, [taskId]: subs }));
         } catch { /* ignore */ }
         finally { setLoadingSubtasks(null); }
+    }
+
+    // Sprint 4 — marcar subtarea como hecha desde /hoy
+    async function markHoySubtaskDone(taskId: string, sub: Subtask) {
+        const newStatus = sub.status === "done" ? "pending" : "done";
+        setSavingSubtaskId(sub.id);
+        try {
+            const updated = await subtaskService.update(sub.id, {
+                status: newStatus,
+                postpone_note: newStatus === "pending" ? "" : undefined,
+            });
+            setSubtaskCache(prev => ({
+                ...prev,
+                [taskId]: prev[taskId].map(s => s.id === sub.id ? updated : s),
+            }));
+            if (newStatus === "done") {
+                setHoyFeedback(prev => ({ ...prev, [sub.id]: "done" }));
+                setTimeout(() => setHoyFeedback(prev => { const n = { ...prev }; delete n[sub.id]; return n; }), 2000);
+            }
+        } catch {
+            setHoyFeedback(prev => ({ ...prev, [sub.id]: "error" }));
+            setTimeout(() => setHoyFeedback(prev => { const n = { ...prev }; delete n[sub.id]; return n; }), 3000);
+        } finally { setSavingSubtaskId(null); }
+    }
+
+    // Sprint 4 — posponer subtarea desde /hoy
+    function startHoyPostpone(sub: Subtask) {
+        setHoyPostponingId(sub.id);
+        setHoyPostponeNote(sub.postpone_note ?? "");
+    }
+    function cancelHoyPostpone() {
+        setHoyPostponingId(null);
+        setHoyPostponeNote("");
+    }
+    async function confirmHoyPostpone(taskId: string, sub: Subtask) {
+        setSavingSubtaskId(sub.id);
+        try {
+            const updated = await subtaskService.update(sub.id, {
+                status: "postponed",
+                postpone_note: hoyPostponeNote || undefined,
+            });
+            setSubtaskCache(prev => ({
+                ...prev,
+                [taskId]: prev[taskId].map(s => s.id === sub.id ? updated : s),
+            }));
+            setHoyFeedback(prev => ({ ...prev, [sub.id]: "postponed" }));
+            setTimeout(() => setHoyFeedback(prev => { const n = { ...prev }; delete n[sub.id]; return n; }), 2000);
+            cancelHoyPostpone();
+        } catch {
+            setHoyFeedback(prev => ({ ...prev, [sub.id]: "error" }));
+            setTimeout(() => setHoyFeedback(prev => { const n = { ...prev }; delete n[sub.id]; return n; }), 3000);
+        } finally { setSavingSubtaskId(null); }
+    }
+    async function markHoyPending(taskId: string, sub: Subtask) {
+        setSavingSubtaskId(sub.id);
+        try {
+            const updated = await subtaskService.update(sub.id, { status: "pending", postpone_note: "" });
+            setSubtaskCache(prev => ({
+                ...prev,
+                [taskId]: prev[taskId].map(s => s.id === sub.id ? updated : s),
+            }));
+        } catch {
+            setHoyFeedback(prev => ({ ...prev, [sub.id]: "error" }));
+            setTimeout(() => setHoyFeedback(prev => { const n = { ...prev }; delete n[sub.id]; return n; }), 3000);
+        } finally { setSavingSubtaskId(null); }
     }
 
     const subjectMap = Object.fromEntries(subjects.map(s => [s.id, s]));
@@ -394,7 +465,7 @@ export default function HoyPage() {
                 luego las de <span className="text-violet-400 font-medium">hoy</span> y después las{" "}
                 <span className="text-slate-300 font-medium">próximas</span>.
                 Dentro de cada grupo: <span className="text-red-400">alta</span> → <span className="text-amber-400">media</span> → <span className="text-emerald-400">baja</span>.
-                Haz clic en <span className="text-violet-400 font-medium">Ver pasos</span> para ver las subtareas de cada actividad.
+                Haz clic en <span className="text-violet-400 font-medium">Ver subtareas</span> para gestionar tus subtareas.
             </div>
 
             {/* Secciones */}
@@ -496,7 +567,7 @@ export default function HoyPage() {
                                             </div>
                                         </button>
 
-                                        {/* Footer expandible de pasos */}
+                                        {/* Footer expandible de subtareas */}
                                         <div className="border-t border-slate-800/80 px-4 pb-1">
                                             <button
                                                 onClick={() => toggleExpand(task.id)}
@@ -508,15 +579,15 @@ export default function HoyPage() {
                                                     {isExpanded ? "▾" : "▸"}
                                                     <span className="font-medium">
                                                         {isExpanded
-                                                            ? "Ocultar pasos"
+                                                            ? "Ocultar subtareas"
                                                             : subtaskCache[task.id]
-                                                                ? `Ver pasos · ${subs.length} paso${subs.length !== 1 ? "s" : ""}`
-                                                                : "Ver pasos"
+                                                                ? `Ver subtareas · ${subs.length} subtarea${subs.length !== 1 ? "s" : ""}`
+                                                                : "Ver subtareas"
                                                         }
                                                     </span>
                                                     {subtaskCache[task.id] && subs.length > 0 && (
                                                         <span className="bg-emerald-500/15 text-emerald-400 text-xs px-1.5 py-0.5 rounded-full font-medium">
-                                                            {doneCount}/{subs.length} hechos
+                                                            {doneCount}/{subs.length} hechas
                                                         </span>
                                                     )}
                                                 </span>
@@ -531,7 +602,7 @@ export default function HoyPage() {
                                                     id={`subtasks-${task.id}`}
                                                     className="pb-3 space-y-1.5"
                                                     role="list"
-                                                    aria-label={`Pasos de ${task.title}`}
+                                                    aria-label={`Subtareas de ${task.title}`}
                                                 >
                                                     {isLoadingSubs ? (
                                                         <div className="py-3 flex justify-center">
@@ -539,44 +610,136 @@ export default function HoyPage() {
                                                         </div>
                                                     ) : subs.length === 0 ? (
                                                         <p className="text-slate-600 text-xs italic py-2 pl-1">
-                                                            Esta actividad no tiene pasos definidos.
+                                                            Esta actividad no tiene subtareas definidas.
                                                         </p>
                                                     ) : (
                                                         subs.map(sub => {
                                                             const isDone = sub.status === "done";
                                                             const isPostponed = sub.status === "postponed";
+                                                            const isSaving = savingSubtaskId === sub.id;
+                                                            const isHoyPostponing = hoyPostponingId === sub.id;
+                                                            const feedback = hoyFeedback[sub.id];
                                                             return (
                                                                 <div
                                                                     key={sub.id}
                                                                     role="listitem"
-                                                                    className={`flex items-start gap-2 px-3 py-2 rounded-xl text-xs transition
-                                                                        ${isDone
+                                                                    className={`rounded-xl text-xs transition ${
+                                                                        isDone
                                                                             ? "bg-emerald-500/8 border border-emerald-500/15"
                                                                             : isPostponed
                                                                                 ? "bg-amber-500/8 border border-amber-500/15"
                                                                                 : "bg-slate-800/50 border border-slate-700/50"
-                                                                        }`}
+                                                                    }`}
                                                                 >
-                                                                    <span className="text-base leading-none mt-0.5 shrink-0">
-                                                                        {SUBTASK_STATUS_ICON[sub.status ?? "pending"]}
-                                                                    </span>
-                                                                    <div className="flex-1 min-w-0">
-                                                                        <p className={`font-medium leading-snug ${isDone ? "line-through text-slate-500" : isPostponed ? "text-amber-300" : "text-slate-200"}`}>
-                                                                            {sub.title}
-                                                                        </p>
-                                                                        <div className="flex gap-2 mt-0.5 text-slate-600">
-                                                                            {sub.target_date && <span>📅 {sub.target_date}</span>}
-                                                                            {sub.estimated_minutes && <span>⏱ {sub.estimated_minutes}min</span>}
-                                                                            {isPostponed && sub.postpone_note && (
-                                                                                <span className="text-amber-600 italic">"{sub.postpone_note}"</span>
+                                                                    {/* Feedback temporal */}
+                                                                    {feedback && (
+                                                                        <div className={`text-xs font-semibold px-3 py-1.5 rounded-t-xl text-center ${
+                                                                            feedback === "done"
+                                                                                ? "bg-emerald-500/20 text-emerald-400"
+                                                                                : feedback === "error"
+                                                                                    ? "bg-red-500/20 text-red-400"
+                                                                                    : "bg-amber-500/20 text-amber-400"
+                                                                        }`}>
+                                                                            {feedback === "done"
+                                                                                ? "Subtarea completada"
+                                                                                : feedback === "error"
+                                                                                    ? "Error al guardar. Intenta de nuevo."
+                                                                                    : "Subtarea pospuesta"}
+                                                                        </div>
+                                                                    )}
+
+                                                                    <div className="flex items-start gap-2 px-3 py-2">
+                                                                        {/* Checkbox */}
+                                                                        <button
+                                                                            onClick={() => markHoySubtaskDone(task.id, sub)}
+                                                                            disabled={isSaving || isPostponed}
+                                                                            className={`mt-0.5 w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center transition focus:outline-none disabled:opacity-50 ${
+                                                                                isDone ? "bg-emerald-500 border-emerald-500" : isPostponed ? "border-amber-500/50" : "border-slate-600 hover:border-violet-400"
+                                                                            }`}
+                                                                            aria-label={isDone ? `Desmarcar "${sub.title}"` : `Marcar "${sub.title}" como hecha`}
+                                                                        >
+                                                                            {isDone && <span className="text-white font-bold" style={{fontSize:"9px"}}>✓</span>}
+                                                                            {isPostponed && <span className="text-amber-400 font-bold" style={{fontSize:"9px"}}>—</span>}
+                                                                        </button>
+
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className={`font-medium leading-snug ${
+                                                                                isDone ? "line-through text-slate-500" : isPostponed ? "text-amber-300" : "text-slate-200"
+                                                                            }`}>
+                                                                                {sub.title}
+                                                                            </p>
+                                                                            <div className="flex flex-wrap gap-2 mt-0.5 text-slate-600">
+                                                                                {sub.target_date && <span>📅 {sub.target_date}</span>}
+                                                                                {sub.estimated_minutes && <span>⏱ {sub.estimated_minutes}min</span>}
+                                                                                {isPostponed && sub.postpone_note && (
+                                                                                    <span className="text-amber-600 italic">"{sub.postpone_note}"</span>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {/* Badge estado + botón posponer */}
+                                                                        <div className="flex items-center gap-1.5 shrink-0">
+                                                                            <span className={`px-1.5 py-0.5 rounded-full font-medium ${
+                                                                                isDone ? "bg-emerald-500/20 text-emerald-400" : isPostponed ? "bg-amber-500/20 text-amber-400" : "bg-slate-700 text-slate-400"
+                                                                            }`}>
+                                                                                {isDone ? "Hecha" : isPostponed ? "Pospuesta" : "Pendiente"}
+                                                                            </span>
+                                                                            {/* Botón posponer — Sprint 4 */}
+                                                                            {!isDone && !isPostponed && !isHoyPostponing && (
+                                                                                <button
+                                                                                    onClick={() => startHoyPostpone(sub)}
+                                                                                    disabled={isSaving}
+                                                                                    className="text-slate-600 hover:text-amber-400 text-xs font-medium transition disabled:opacity-40"
+                                                                                    title="Posponer"
+                                                                                    aria-label={`Posponer subtarea "${sub.title}"`}
+                                                                                >
+                                                                                    posponer
+                                                                                </button>
+                                                                            )}
+                                                                            {isPostponed && !isHoyPostponing && (
+                                                                                <button
+                                                                                    onClick={() => markHoyPending(task.id, sub)}
+                                                                                    disabled={isSaving}
+                                                                                    className="text-slate-600 hover:text-slate-300 text-xs transition disabled:opacity-40"
+                                                                                    title="Volver a pendiente"
+                                                                                >
+                                                                                    ↩
+                                                                                </button>
                                                                             )}
                                                                         </div>
                                                                     </div>
-                                                                    {/* Badge de estado */}
-                                                                    <span className={`shrink-0 px-1.5 py-0.5 rounded-full font-medium
-                                                                        ${isDone ? "bg-emerald-500/20 text-emerald-400" : isPostponed ? "bg-amber-500/20 text-amber-400" : "bg-slate-700 text-slate-400"}`}>
-                                                                        {isDone ? "Hecho" : isPostponed ? "Pospuesto" : "Pendiente"}
-                                                                    </span>
+
+                                                                    {/* Panel posponer inline — Sprint 4 */}
+                                                                    {isHoyPostponing && (
+                                                                        <div className="px-3 pb-3 space-y-2">
+                                                                            <label className="text-xs text-slate-400 block">
+                                                                                ¿Por qué pospones? <span className="text-slate-600">(opcional)</span>
+                                                                            </label>
+                                                                            <input
+                                                                                type="text"
+                                                                                value={hoyPostponeNote}
+                                                                                onChange={e => setHoyPostponeNote(e.target.value)}
+                                                                                placeholder="Ej: Se cruzó con otro examen..."
+                                                                                autoFocus
+                                                                                className="w-full bg-slate-800 border border-amber-500/30 rounded-lg px-3 py-1.5 text-white placeholder-slate-500 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 transition"
+                                                                            />
+                                                                            <div className="flex gap-2">
+                                                                                <button
+                                                                                    onClick={() => confirmHoyPostpone(task.id, sub)}
+                                                                                    disabled={isSaving}
+                                                                                    className="bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition"
+                                                                                >
+                                                                                    {isSaving ? "Guardando..." : "Confirmar posposición"}
+                                                                                </button>
+                                                                                <button
+                                                                                    onClick={cancelHoyPostpone}
+                                                                                    className="text-slate-500 hover:text-slate-300 text-xs px-3 py-1.5 rounded-lg transition"
+                                                                                >
+                                                                                    Cancelar
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             );
                                                         })

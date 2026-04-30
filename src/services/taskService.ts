@@ -148,4 +148,29 @@ export const taskService = {
         );
         return data;
     },
+
+    /**
+     * C2 (US-10): Progreso global real basado en subtareas.
+     * Llama a GET /tasks/progreso-global con user_email.
+     *
+     * @param email - Email del usuario.
+     * @returns { total_subtasks, done, postponed, pending, percent, tasks_total, tasks_done }
+     */
+    async getGlobalProgress(email: string): Promise<{
+        total_subtasks: number;
+        done: number;
+        postponed: number;
+        pending: number;
+        percent: number;
+        tasks_total: number;
+        tasks_done: number;
+        tasks_postponed: number;
+        tasks_pending: number;
+        tasks_percent: number;
+    }> {
+        const { data } = await api.get("/tasks/progreso-global", {
+            params: { user_email: email },
+        });
+        return data;
+    },
 };
