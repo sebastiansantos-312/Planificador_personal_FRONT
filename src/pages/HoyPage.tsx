@@ -38,12 +38,6 @@ const STATUS_LABELS: Record<string, string> = {
     done: "Completada",
 };
 
-const SUBTASK_STATUS_ICON: Record<string, string> = {
-    done: "✅",
-    postponed: "⏭",
-    pending: "⬜",
-};
-
 const TASK_TYPE_ICONS: Record<string, string> = {
     examen: "📝", quiz: "❓", taller: "🔧",
     proyecto: "📁", "exposición": "🎤", otro: "📌",
