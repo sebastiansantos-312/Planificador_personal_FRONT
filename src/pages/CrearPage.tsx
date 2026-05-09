@@ -73,12 +73,14 @@ export default function CrearPage() {
     const [subjectId, setSubjectId] = useState("");
     const [dueDate, setDueDate] = useState("");
     const [durationMinutes, setDurationMinutes] = useState(60);
-    const [durationHours, setDurationHours] = useState(1); // input visible al usuario
+    const [durationHoursStr, setDurationHoursStr] = useState("1"); // texto libre del input
+    const [durationHours, setDurationHours] = useState(1);          // valor numérico real
     const [priority, setPriority] = useState<TaskPriority>("media");
 
     // Subtareas pendientes de crear (draft local)
     const [subtasks, setSubtasks] = useState<SubtaskDraft[]>([]);
     const [showSubtaskForm, setShowSubtaskForm] = useState(false);
+    const [newSubHoursStr, setNewSubHoursStr] = useState("0.5"); // texto libre del input de subtarea
     const [newSub, setNewSub] = useState<SubtaskDraft>({
         title: "", description: "", target_date: "", estimated_minutes: 30, estimated_hours: 0.5,
     });
@@ -115,12 +117,18 @@ export default function CrearPage() {
         setSubjectId(prev => prev === id ? "" : id);
     }
 
+    /** Redondea horas al múltiplo de 0.5 más cercano (mínimo 0.5). */
+    function snapToHalf(raw: number): number {
+        return Math.max(0.5, Math.round(raw * 2) / 2);
+    }
+
     /** Agrega el paso al draft local (convierte horas a minutos). */
     function handleAddSubtask() {
         if (!newSub.title.trim() || !newSub.target_date) return;
         const mins = hoursToMinutes(newSub.estimated_hours);
         setSubtasks((prev) => [...prev, { ...newSub, estimated_minutes: mins }]);
         setNewSub({ title: "", description: "", target_date: "", estimated_minutes: 30, estimated_hours: 0.5 });
+        setNewSubHoursStr("0.5");
         setShowSubtaskForm(false);
     }
 
@@ -410,13 +418,17 @@ export default function CrearPage() {
                             </label>
                             <div className="relative">
                                 <input
-                                    id="duration" type="number" min={0.1} max={12} step={0.5} required
-                                    value={durationHours}
-                                    onChange={(e) => {
-                                        const h = parseFloat(e.target.value) || 0.5;
-                                        setDurationHours(h);
-                                        setDurationMinutes(hoursToMinutes(h));
+                                    id="duration" type="text" inputMode="decimal" required
+                                    value={durationHoursStr}
+                                    onChange={(e) => setDurationHoursStr(e.target.value)}
+                                    onBlur={() => {
+                                        const parsed = parseFloat(durationHoursStr);
+                                        const snapped = isNaN(parsed) ? 0.5 : snapToHalf(parsed);
+                                        setDurationHours(snapped);
+                                        setDurationHoursStr(String(snapped));
+                                        setDurationMinutes(hoursToMinutes(snapped));
                                     }}
+                                    placeholder="1"
                                     className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition pr-12"
                                 />
                                 <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">
@@ -508,12 +520,16 @@ export default function CrearPage() {
                                     </label>
                                     <div className="relative">
                                         <input
-                                            id="subHours" type="number" min={0.1} max={8} step={0.5}
-                                            value={newSub.estimated_hours}
-                                            onChange={(e) => {
-                                                const h = parseFloat(e.target.value) || 0.5;
-                                                setNewSub({ ...newSub, estimated_hours: h, estimated_minutes: hoursToMinutes(h) });
+                                            id="subHours" type="text" inputMode="decimal"
+                                            value={newSubHoursStr}
+                                            onChange={(e) => setNewSubHoursStr(e.target.value)}
+                                            onBlur={() => {
+                                                const parsed = parseFloat(newSubHoursStr);
+                                                const snapped = isNaN(parsed) ? 0.5 : snapToHalf(parsed);
+                                                setNewSubHoursStr(String(snapped));
+                                                setNewSub({ ...newSub, estimated_hours: snapped, estimated_minutes: hoursToMinutes(snapped) });
                                             }}
+                                            placeholder="0.5"
                                             className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition pr-8"
                                         />
                                         <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">h</span>

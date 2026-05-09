@@ -88,7 +88,8 @@ export default function ActividadPage() {
     const [editTitle, setEditTitle] = useState("");
     const [editDueDate, setEditDueDate] = useState("");
     const [editDuration, setEditDuration] = useState(0); // minutos internos
-    const [editDurationHours, setEditDurationHours] = useState(1); // input visible
+    const [editDurationHours, setEditDurationHours] = useState(1); // valor numérico real
+    const [editDurationHoursStr, setEditDurationHoursStr] = useState("1"); // texto libre del input
     const [editPriority, setEditPriority] = useState<TaskPriority>("media");
     const [editTaskType, setEditTaskType] = useState<TaskType | "">("otro");
     const [editSubjectId, setEditSubjectId] = useState("");
@@ -111,7 +112,8 @@ export default function ActividadPage() {
     const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
     const [editDate, setEditDate] = useState("");
     const [editMinutes, setEditMinutes] = useState<number>(0);
-    const [editHours, setEditHours] = useState<number>(0); // input visible para reprogramar subtarea
+    const [editHours, setEditHours] = useState<number>(0);       // valor numérico real
+    const [editHoursStr, setEditHoursStr] = useState("0.5");     // texto libre del input
     const [rescheduling, setRescheduling] = useState(false);
     const [conflictModal, setConflictModal] = useState<ConflictModal | null>(null);
     const [reducedMinutes, setReducedMinutes] = useState<number>(0);
@@ -130,7 +132,8 @@ export default function ActividadPage() {
     const [newStepDesc, setNewStepDesc] = useState("");
     const [newStepDate, setNewStepDate] = useState("");
     const [newStepMinutes, setNewStepMinutes] = useState(30);
-    const [newStepHours, setNewStepHours] = useState(0.5); // input visible
+    const [newStepHours, setNewStepHours] = useState(0.5);       // valor numérico real
+    const [newStepHoursStr, setNewStepHoursStr] = useState("0.5"); // texto libre del input
     const [addingStep, setAddingStep] = useState(false);
 
     // Eliminar paso
@@ -192,12 +195,19 @@ export default function ActividadPage() {
         finally { setUpdatingStatus(false); }
     }
 
+    /** Redondea horas al múltiplo de 0.5 más cercano (mínimo 0.5). */
+    function snapToHalf(raw: number): number {
+        return Math.max(0.5, Math.round(raw * 2) / 2);
+    }
+
     function startEditingTask() {
         if (!task) return;
         setEditTitle(task.title);
         setEditDueDate(task.due_date ?? "");
         setEditDuration(task.duration_minutes ?? 60);
-        setEditDurationHours(parseFloat(((task.duration_minutes ?? 60) / 60).toFixed(2)));
+        const h = snapToHalf((task.duration_minutes ?? 60) / 60);
+        setEditDurationHours(h);
+        setEditDurationHoursStr(String(h));
         setEditPriority((task.priority as TaskPriority) ?? "media");
         setEditTaskType((task.task_type as TaskType) ?? "otro");
         setEditSubjectId(task.subject_id ?? "");
@@ -374,8 +384,10 @@ export default function ActividadPage() {
     function startEditing(sub: Subtask) {
         setEditingSubtaskId(sub.id);
         setEditDate(sub.target_date ?? "");
+        const h = snapToHalf((sub.estimated_minutes ?? 0) / 60);
         setEditMinutes(sub.estimated_minutes ?? 0);
-        setEditHours(parseFloat(((sub.estimated_minutes ?? 0) / 60).toFixed(2)));
+        setEditHours(h);
+        setEditHoursStr(String(h));
         setConflictModal(null);
         cancelPostpone();
         setEditingContentId(null);
@@ -386,6 +398,7 @@ export default function ActividadPage() {
         setEditDate("");
         setEditMinutes(0);
         setEditHours(0);
+        setEditHoursStr("0.5");
     }
 
     // ── Editar título/descripción del paso ───────────────────────────────────
@@ -450,6 +463,7 @@ export default function ActividadPage() {
             setNewStepDate("");
             setNewStepMinutes(30);
             setNewStepHours(0.5);
+            setNewStepHoursStr("0.5");
             setShowAddStep(false);
         } catch {/* ignore */}
         finally { setAddingStep(false); }
@@ -661,8 +675,16 @@ export default function ActividadPage() {
                                 <label className="block text-xs font-medium text-slate-400 mb-1">Duración (horas)</label>
                                 <div className="relative">
                                     <input
-                                        type="number" min={0.1} max={12} step={0.5} value={editDurationHours}
-                                        onChange={e => { const h=parseFloat(e.target.value)||0.5; setEditDurationHours(h); setEditDuration(hoursToMinutes(h)); setEditConflictData(null); setPendingEditSave(false); }}
+                                        type="text" inputMode="decimal" value={editDurationHoursStr}
+                                        placeholder="1"
+                                        onChange={e => { setEditDurationHoursStr(e.target.value); setEditConflictData(null); setPendingEditSave(false); }}
+                                        onBlur={() => {
+                                            const parsed = parseFloat(editDurationHoursStr);
+                                            const snapped = isNaN(parsed) ? 0.5 : snapToHalf(parsed);
+                                            setEditDurationHours(snapped);
+                                            setEditDurationHoursStr(String(snapped));
+                                            setEditDuration(hoursToMinutes(snapped));
+                                        }}
                                         className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition pr-8"
                                     />
                                     <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">h</span>
@@ -1135,8 +1157,16 @@ export default function ActividadPage() {
                                                     <div>
                                                         <label className="text-xs text-slate-500 block mb-1">Horas estimadas</label>
                                                         <div className="relative">
-                                                            <input type="number" min={0.1} max={8} step={0.5} value={editHours}
-                                                                onChange={e => { const h=parseFloat(e.target.value)||0.5; setEditHours(h); setEditMinutes(hoursToMinutes(h)); }}
+                                                            <input type="text" inputMode="decimal" value={editHoursStr}
+                                                                placeholder="0.5"
+                                                                onChange={e => setEditHoursStr(e.target.value)}
+                                                                onBlur={() => {
+                                                                    const parsed = parseFloat(editHoursStr);
+                                                                    const snapped = isNaN(parsed) ? 0.5 : snapToHalf(parsed);
+                                                                    setEditHours(snapped);
+                                                                    setEditHoursStr(String(snapped));
+                                                                    setEditMinutes(hoursToMinutes(snapped));
+                                                                }}
                                                                 className="w-28 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 pr-7" />
                                                             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">h</span>
                                                         </div>
@@ -1281,8 +1311,16 @@ export default function ActividadPage() {
                                 <label className="block text-xs font-medium text-slate-400 mb-1">Horas estimadas</label>
                                 <div className="relative">
                                     <input
-                                        type="number" min={0.1} max={8} step={0.5} value={newStepHours}
-                                        onChange={e => { const h=parseFloat(e.target.value)||0.5; setNewStepHours(h); setNewStepMinutes(hoursToMinutes(h)); }}
+                                        type="text" inputMode="decimal" value={newStepHoursStr}
+                                        placeholder="0.5"
+                                        onChange={e => setNewStepHoursStr(e.target.value)}
+                                        onBlur={() => {
+                                            const parsed = parseFloat(newStepHoursStr);
+                                            const snapped = isNaN(parsed) ? 0.5 : snapToHalf(parsed);
+                                            setNewStepHours(snapped);
+                                            setNewStepHoursStr(String(snapped));
+                                            setNewStepMinutes(hoursToMinutes(snapped));
+                                        }}
                                         className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition pr-8"
                                     />
                                     <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">h</span>
