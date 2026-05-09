@@ -541,7 +541,7 @@ export default function HoyPage() {
                                                     {/* Fecha y duración */}
                                                     <div className="flex gap-3 mt-1.5 text-xs text-slate-600">
                                                         {task.due_date && <span>📅 {task.due_date}</span>}
-                                                        {task.duration_minutes && <span>⏱ {task.duration_minutes}min</span>}
+                                                        {task.duration_minutes && <span>⏱ {(() => { const h = Math.floor(task.duration_minutes/60); const m = task.duration_minutes%60; return h>0&&m>0?`${h}h ${m}m`:h>0?`${h}h`:`${m}m`; })()}</span>}
                                                     </div>
                                                 </div>
 
@@ -664,7 +664,7 @@ export default function HoyPage() {
                                                                             </p>
                                                                             <div className="flex flex-wrap gap-2 mt-0.5 text-slate-600">
                                                                                 {sub.target_date && <span>📅 {sub.target_date}</span>}
-                                                                                {sub.estimated_minutes && <span>⏱ {sub.estimated_minutes}min</span>}
+                                                                                {sub.estimated_minutes && <span>⏱ {(() => { const h = Math.floor(sub.estimated_minutes/60); const m = sub.estimated_minutes%60; return h>0&&m>0?`${h}h ${m}m`:h>0?`${h}h`:`${m}m`; })()}</span>}
                                                                                 {isPostponed && sub.postpone_note && (
                                                                                     <span className="text-amber-600 italic">"{sub.postpone_note}"</span>
                                                                                 )}

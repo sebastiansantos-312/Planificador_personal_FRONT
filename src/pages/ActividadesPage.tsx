@@ -153,23 +153,34 @@ export default function ActividadesPage() {
                 ))}
             </div>
 
-            {/* Lista vacía */}
+            {/* P4: Mensaje adaptado según contexto (filtro activo vs sin actividades) */}
             {filtered.length === 0 && (
-                <div className="text-center py-16">
-                    <span className="text-5xl">📋</span>
-                    <p className="text-slate-300 font-semibold mt-4">
-                        {filter === "all" ? "No tienes actividades aún" : "Sin actividades en esta categoría"}
-                    </p>
-                    {filter === "all" && (
-                        <>
-                            <p className="text-slate-500 text-sm mt-1">Crea tu primera actividad para organizar tu estudio.</p>
-                            <button
-                                onClick={() => navigate("/crear")}
-                                className="mt-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold px-6 py-3 rounded-xl transition shadow-lg shadow-violet-500/20"
-                            >
-                                Crear actividad
-                            </button>
-                        </>
+                <div className="text-center py-16 space-y-3">
+                    <span className="text-5xl">{filter === "all" ? "📋" : "🔍"}</span>
+                    <div>
+                        <p className="text-slate-300 font-semibold">
+                            {filter === "all" ? "No tienes actividades aún" : `Sin actividades con estado "${FILTER_OPTIONS.find(f => f.value === filter)?.label}"`}
+                        </p>
+                        <p className="text-slate-500 text-sm mt-1">
+                            {filter === "all"
+                                ? "Crea tu primera actividad para organizar tu estudio."
+                                : "Prueba con otro filtro o crea una nueva actividad."}
+                        </p>
+                    </div>
+                    {filter !== "all" ? (
+                        <button
+                            onClick={() => setFilter("all")}
+                            className="text-violet-400 hover:text-violet-300 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 px-4 py-2 rounded-xl hover:bg-violet-500/10"
+                        >
+                            Ver todas las actividades
+                        </button>
+                    ) : (
+                        <button
+                            onClick={() => navigate("/crear")}
+                            className="bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-sm font-semibold px-6 py-3 rounded-xl transition shadow-lg shadow-violet-500/20 hover:from-violet-500 hover:to-indigo-500"
+                        >
+                            Crear actividad
+                        </button>
                     )}
                 </div>
             )}
@@ -234,7 +245,7 @@ export default function ActividadesPage() {
                                             </span>
                                         )}
                                         {task.duration_minutes && (
-                                            <span className="text-xs text-slate-600">⏱ {task.duration_minutes}min</span>
+                                            <span className="text-xs text-slate-600">⏱ {(() => { const h = Math.floor(task.duration_minutes/60); const m = task.duration_minutes%60; return h>0&&m>0?`${h}h ${m}m`:h>0?`${h}h`:`${m}m`; })()}</span>
                                         )}
                                     </div>
                                 </div>

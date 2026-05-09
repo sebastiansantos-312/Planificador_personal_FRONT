@@ -50,6 +50,7 @@ export default function MateriasPage() {
 
     // UUID de la materia que se está eliminando (para mostrar spinner)
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [createSuccess, setCreateSuccess] = useState(false); // P4: feedback visual
 
     useEffect(() => {
         if (!session) { navigate("/auth"); return; }
@@ -89,6 +90,9 @@ export default function MateriasPage() {
             setName("");
             setColor(COLOR_OPTIONS[0]);
             setShowForm(false);
+            // P4: feedback visual de éxito
+            setCreateSuccess(true);
+            setTimeout(() => setCreateSuccess(false), 2500);
         } catch {
             setFormError("No se pudo crear la materia. Intenta de nuevo.");
         } finally {
@@ -173,11 +177,28 @@ export default function MateriasPage() {
                 </div>
             )}
 
+            {/* P4: Banner de éxito al crear materia */}
+            {createSuccess && (
+                <div role="status" className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-sm rounded-xl px-4 py-3 flex items-center gap-2 animate-pulse">
+                    <span>✅</span>
+                    <span>Materia creada correctamente</span>
+                </div>
+            )}
+
+            {/* P2: Estado vacío con CTA integrado */}
             {loadState === "success" && subjects.length === 0 && (
-                <div className="text-center py-16">
-                    <p className="text-5xl mb-4">📚</p>
-                    <p className="text-slate-300 font-semibold">Sin materias todavía</p>
-                    <p className="text-slate-500 text-sm mt-1">Crea tu primera materia para organizar tus tareas.</p>
+                <div className="text-center py-16 space-y-4">
+                    <p className="text-5xl">📚</p>
+                    <div>
+                        <p className="text-slate-300 font-semibold">Sin materias todavía</p>
+                        <p className="text-slate-500 text-sm mt-1">Organiza tus tareas agrupándolas por materia.</p>
+                    </div>
+                    <button
+                        onClick={() => { setShowForm(true); setFormError(""); }}
+                        className="bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold px-6 py-3 rounded-xl transition shadow-lg shadow-violet-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+                    >
+                        Crear primera materia
+                    </button>
                 </div>
             )}
 

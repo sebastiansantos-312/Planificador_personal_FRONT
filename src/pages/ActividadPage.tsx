@@ -13,6 +13,11 @@ import { subjectService } from "../services/subjectService";
 import { authService } from "../services/authService";
 import type { Task, Subtask, Subject, TaskStatus, TaskPriority, TaskType, LoadingState, ConflictResult, AlternativeDay, DisplaceableTask } from "../types";
 
+/** Convierte horas decimales a minutos enteros. */
+function hoursToMinutes(h: number): number { return Math.max(1, Math.round(h * 60)); }
+/** Formatea minutos a string legible. */
+function fmtMin(mins: number): string { const h=Math.floor(mins/60),m=mins%60; return h>0&&m>0?`${h}h ${m}m`:h>0?`${h}h`:`${m}m`; }
+
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
     { value: "pending", label: "Pendiente" },
     { value: "in_progress", label: "En progreso" },
@@ -82,7 +87,8 @@ export default function ActividadPage() {
     const [editingTask, setEditingTask] = useState(false);
     const [editTitle, setEditTitle] = useState("");
     const [editDueDate, setEditDueDate] = useState("");
-    const [editDuration, setEditDuration] = useState(0);
+    const [editDuration, setEditDuration] = useState(0); // minutos internos
+    const [editDurationHours, setEditDurationHours] = useState(1); // input visible
     const [editPriority, setEditPriority] = useState<TaskPriority>("media");
     const [editTaskType, setEditTaskType] = useState<TaskType | "">("otro");
     const [editSubjectId, setEditSubjectId] = useState("");
@@ -105,6 +111,7 @@ export default function ActividadPage() {
     const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
     const [editDate, setEditDate] = useState("");
     const [editMinutes, setEditMinutes] = useState<number>(0);
+    const [editHours, setEditHours] = useState<number>(0); // input visible para reprogramar subtarea
     const [rescheduling, setRescheduling] = useState(false);
     const [conflictModal, setConflictModal] = useState<ConflictModal | null>(null);
     const [reducedMinutes, setReducedMinutes] = useState<number>(0);
@@ -123,6 +130,7 @@ export default function ActividadPage() {
     const [newStepDesc, setNewStepDesc] = useState("");
     const [newStepDate, setNewStepDate] = useState("");
     const [newStepMinutes, setNewStepMinutes] = useState(30);
+    const [newStepHours, setNewStepHours] = useState(0.5); // input visible
     const [addingStep, setAddingStep] = useState(false);
 
     // Eliminar paso
@@ -189,6 +197,7 @@ export default function ActividadPage() {
         setEditTitle(task.title);
         setEditDueDate(task.due_date ?? "");
         setEditDuration(task.duration_minutes ?? 60);
+        setEditDurationHours(parseFloat(((task.duration_minutes ?? 60) / 60).toFixed(2)));
         setEditPriority((task.priority as TaskPriority) ?? "media");
         setEditTaskType((task.task_type as TaskType) ?? "otro");
         setEditSubjectId(task.subject_id ?? "");
@@ -366,6 +375,7 @@ export default function ActividadPage() {
         setEditingSubtaskId(sub.id);
         setEditDate(sub.target_date ?? "");
         setEditMinutes(sub.estimated_minutes ?? 0);
+        setEditHours(parseFloat(((sub.estimated_minutes ?? 0) / 60).toFixed(2)));
         setConflictModal(null);
         cancelPostpone();
         setEditingContentId(null);
@@ -375,6 +385,7 @@ export default function ActividadPage() {
         setEditingSubtaskId(null);
         setEditDate("");
         setEditMinutes(0);
+        setEditHours(0);
     }
 
     // ── Editar título/descripción del paso ───────────────────────────────────
@@ -438,6 +449,7 @@ export default function ActividadPage() {
             setNewStepDesc("");
             setNewStepDate("");
             setNewStepMinutes(30);
+            setNewStepHours(0.5);
             setShowAddStep(false);
         } catch {/* ignore */}
         finally { setAddingStep(false); }
@@ -646,12 +658,16 @@ export default function ActividadPage() {
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-slate-400 mb-1">Duración (min)</label>
-                                <input
-                                    type="number" min={5} value={editDuration}
-                                    onChange={e => { setEditDuration(Number(e.target.value)); setEditConflictData(null); setPendingEditSave(false); }}
-                                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition"
-                                />
+                                <label className="block text-xs font-medium text-slate-400 mb-1">Duración (horas)</label>
+                                <div className="relative">
+                                    <input
+                                        type="number" min={0.1} max={12} step={0.5} value={editDurationHours}
+                                        onChange={e => { const h=parseFloat(e.target.value)||0.5; setEditDurationHours(h); setEditDuration(hoursToMinutes(h)); setEditConflictData(null); setPendingEditSave(false); }}
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition pr-8"
+                                    />
+                                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">h</span>
+                                </div>
+                                {editDurationHours > 0 && <p className="text-xs text-slate-600 mt-0.5">{fmtMin(hoursToMinutes(editDurationHours))}</p>}
                             </div>
                         </div>
 
@@ -1078,7 +1094,7 @@ export default function ActividadPage() {
                                                 {!isEditing && !isPostponing && (
                                                     <div className="flex gap-3 mt-1.5 text-xs text-slate-600">
                                                         {sub.target_date && <span>📅 {sub.target_date}</span>}
-                                                        {sub.estimated_minutes && <span>⏱ {sub.estimated_minutes}min</span>}
+                                                        {sub.estimated_minutes && <span>⏱ {fmtMin(sub.estimated_minutes)}</span>}
                                                     </div>
                                                 )}
                                             </>
@@ -1117,9 +1133,14 @@ export default function ActividadPage() {
                                                             className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
                                                     </div>
                                                     <div>
-                                                        <label className="text-xs text-slate-500 block mb-1">Minutos estimados</label>
-                                                        <input type="number" min={5} value={editMinutes} onChange={e => setEditMinutes(Number(e.target.value))}
-                                                            className="w-24 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500" />
+                                                        <label className="text-xs text-slate-500 block mb-1">Horas estimadas</label>
+                                                        <div className="relative">
+                                                            <input type="number" min={0.1} max={8} step={0.5} value={editHours}
+                                                                onChange={e => { const h=parseFloat(e.target.value)||0.5; setEditHours(h); setEditMinutes(hoursToMinutes(h)); }}
+                                                                className="w-28 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 pr-7" />
+                                                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">h</span>
+                                                        </div>
+                                                        {editHours > 0 && <p className="text-xs text-slate-600 mt-0.5">{fmtMin(hoursToMinutes(editHours))}</p>}
                                                     </div>
                                                 </div>
                                                 <div className="flex gap-2">
@@ -1257,12 +1278,16 @@ export default function ActividadPage() {
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-medium text-slate-400 mb-1">Minutos estimados</label>
-                                <input
-                                    type="number" min={5} value={newStepMinutes}
-                                    onChange={e => setNewStepMinutes(Number(e.target.value))}
-                                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition"
-                                />
+                                <label className="block text-xs font-medium text-slate-400 mb-1">Horas estimadas</label>
+                                <div className="relative">
+                                    <input
+                                        type="number" min={0.1} max={8} step={0.5} value={newStepHours}
+                                        onChange={e => { const h=parseFloat(e.target.value)||0.5; setNewStepHours(h); setNewStepMinutes(hoursToMinutes(h)); }}
+                                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition pr-8"
+                                    />
+                                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">h</span>
+                                </div>
+                                {newStepHours > 0 && <p className="text-xs text-slate-600 mt-0.5">{fmtMin(hoursToMinutes(newStepHours))}</p>}
                             </div>
                         </div>
                         <div className="flex gap-2 pt-1">
@@ -1274,7 +1299,7 @@ export default function ActividadPage() {
                                 {addingStep ? "Agregando..." : "Agregar subtarea"}
                             </button>
                             <button
-                                onClick={() => { setShowAddStep(false); setNewStepTitle(""); setNewStepDesc(""); setNewStepDate(""); setNewStepMinutes(30); }}
+                                onClick={() => { setShowAddStep(false); setNewStepTitle(""); setNewStepDesc(""); setNewStepDate(""); setNewStepMinutes(30); setNewStepHours(0.5); }}
                                 className="flex-1 text-slate-400 hover:text-white text-sm py-2.5 rounded-xl hover:bg-slate-800 transition"
                             >
                                 Cancelar

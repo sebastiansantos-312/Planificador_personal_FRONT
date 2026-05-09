@@ -22,7 +22,22 @@ interface SubtaskDraft {
     title: string;
     description: string;
     target_date: string;
-    estimated_minutes: number;
+    estimated_minutes: number;  // almacenado en minutos internamente
+    estimated_hours: number;    // input del usuario en horas
+}
+
+/** Convierte horas (puede ser decimal: 1.5) a minutos enteros. */
+function hoursToMinutes(h: number): number {
+    return Math.max(1, Math.round(h * 60));
+}
+
+/** Formatea minutos a string legible: "1h 30m", "45m", "2h". */
+function fmtMinutes(mins: number): string {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    if (h > 0 && m > 0) return `${h}h ${m}m`;
+    if (h > 0) return `${h}h`;
+    return `${m}m`;
 }
 
 /** Opciones de tipo de actividad — US-01. */
@@ -58,13 +73,14 @@ export default function CrearPage() {
     const [subjectId, setSubjectId] = useState("");
     const [dueDate, setDueDate] = useState("");
     const [durationMinutes, setDurationMinutes] = useState(60);
+    const [durationHours, setDurationHours] = useState(1); // input visible al usuario
     const [priority, setPriority] = useState<TaskPriority>("media");
 
     // Subtareas pendientes de crear (draft local)
     const [subtasks, setSubtasks] = useState<SubtaskDraft[]>([]);
     const [showSubtaskForm, setShowSubtaskForm] = useState(false);
     const [newSub, setNewSub] = useState<SubtaskDraft>({
-        title: "", description: "", target_date: "", estimated_minutes: 30,
+        title: "", description: "", target_date: "", estimated_minutes: 30, estimated_hours: 0.5,
     });
 
     // Modal de advertencia de límite diario
@@ -99,11 +115,12 @@ export default function CrearPage() {
         setSubjectId(prev => prev === id ? "" : id);
     }
 
-    /** Agrega el paso al draft local. */
+    /** Agrega el paso al draft local (convierte horas a minutos). */
     function handleAddSubtask() {
         if (!newSub.title.trim() || !newSub.target_date) return;
-        setSubtasks((prev) => [...prev, { ...newSub }]);
-        setNewSub({ title: "", description: "", target_date: "", estimated_minutes: 30 });
+        const mins = hoursToMinutes(newSub.estimated_hours);
+        setSubtasks((prev) => [...prev, { ...newSub, estimated_minutes: mins }]);
+        setNewSub({ title: "", description: "", target_date: "", estimated_minutes: 30, estimated_hours: 0.5 });
         setShowSubtaskForm(false);
     }
 
@@ -122,13 +139,17 @@ export default function CrearPage() {
 
         setErrorMsg("");
 
+        // Calcular minutos a partir del input en horas
+        const finalMinutes = hoursToMinutes(durationHours);
+        setDurationMinutes(finalMinutes);
+
         // Verificar límite diario antes de crear
-        if (dueDate && durationMinutes > 0) {
+        if (dueDate && finalMinutes > 0) {
             try {
                 const result = await taskService.checkConflict(
                     DUMMY_UUID,
                     dueDate,
-                    durationMinutes,
+                    finalMinutes,
                     session.user_id,
                     priority,
                 );
@@ -385,13 +406,28 @@ export default function CrearPage() {
                         </div>
                         <div>
                             <label htmlFor="duration" className="block text-sm font-medium text-slate-300 mb-1.5">
-                                Duración (min) *
+                                Duración (horas) *
                             </label>
-                            <input
-                                id="duration" type="number" min={5} max={480} required value={durationMinutes}
-                                onChange={(e) => setDurationMinutes(Number(e.target.value))}
-                                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition"
-                            />
+                            <div className="relative">
+                                <input
+                                    id="duration" type="number" min={0.1} max={12} step={0.5} required
+                                    value={durationHours}
+                                    onChange={(e) => {
+                                        const h = parseFloat(e.target.value) || 0.5;
+                                        setDurationHours(h);
+                                        setDurationMinutes(hoursToMinutes(h));
+                                    }}
+                                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition pr-12"
+                                />
+                                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">
+                                    h
+                                </span>
+                            </div>
+                            {durationHours > 0 && (
+                                <p className="text-xs text-slate-500 mt-1">
+                                    = {fmtMinutes(hoursToMinutes(durationHours))}
+                                </p>
+                            )}
                         </div>
                     </div>
                     <div>
@@ -423,7 +459,7 @@ export default function CrearPage() {
                                 <li key={i} className="flex items-center justify-between bg-slate-800 rounded-xl px-4 py-3 text-sm">
                                     <div>
                                         <span className="text-white font-medium">{sub.title}</span>
-                                        <span className="text-slate-500 ml-2">{sub.estimated_minutes}min · {sub.target_date}</span>
+                                        <span className="text-slate-500 ml-2">{fmtMinutes(sub.estimated_minutes)} · {sub.target_date}</span>
                                     </div>
                                     <button type="button" onClick={() => removeSubtask(i)}
                                         className="text-slate-600 hover:text-red-400 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 rounded"
@@ -467,13 +503,24 @@ export default function CrearPage() {
                                     />
                                 </div>
                                 <div>
-                                    <label htmlFor="subMinutes" className="block text-xs font-medium text-slate-400 mb-1">
-                                        Minutos estimados
+                                    <label htmlFor="subHours" className="block text-xs font-medium text-slate-400 mb-1">
+                                        Horas estimadas
                                     </label>
-                                    <input id="subMinutes" type="number" min={5} value={newSub.estimated_minutes}
-                                        onChange={(e) => setNewSub({ ...newSub, estimated_minutes: Number(e.target.value) })}
-                                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition"
-                                    />
+                                    <div className="relative">
+                                        <input
+                                            id="subHours" type="number" min={0.1} max={8} step={0.5}
+                                            value={newSub.estimated_hours}
+                                            onChange={(e) => {
+                                                const h = parseFloat(e.target.value) || 0.5;
+                                                setNewSub({ ...newSub, estimated_hours: h, estimated_minutes: hoursToMinutes(h) });
+                                            }}
+                                            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 transition pr-8"
+                                        />
+                                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">h</span>
+                                    </div>
+                                    {newSub.estimated_hours > 0 && (
+                                        <p className="text-xs text-slate-600 mt-0.5">{fmtMinutes(hoursToMinutes(newSub.estimated_hours))}</p>
+                                    )}
                                 </div>
                             </div>
 

@@ -150,13 +150,18 @@ export default function ProgresoPage() {
     if (tasks.length === 0) {
         return (
             <div className="flex flex-col items-center py-24 gap-4 text-center">
-                <p className="text-slate-300 font-semibold">Aun no hay datos de progreso</p>
-                <p className="text-slate-500 text-sm">Crea actividades para ver tus estadisticas aqui.</p>
+                <span className="text-5xl">📊</span>
+                <div>
+                    <p className="text-slate-300 font-semibold">Aún sin datos de progreso</p>
+                    <p className="text-slate-500 text-sm mt-1 max-w-xs">
+                        Crea actividades y comienza a registrar tu avance académico.
+                    </p>
+                </div>
                 <button
                     onClick={() => navigate("/crear")}
                     className="bg-violet-600 text-white px-6 py-3 rounded-xl text-sm font-semibold hover:bg-violet-500 transition shadow-lg shadow-violet-500/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
                 >
-                    Crear actividad
+                    Crear primera actividad
                 </button>
             </div>
         );
@@ -170,7 +175,7 @@ export default function ProgresoPage() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-white text-2xl font-bold tracking-tight">Progreso</h1>
-                    <p className="text-slate-400 text-sm mt-1">Resumen de tus actividades academicas</p>
+                    <p className="text-slate-400 text-sm mt-1">Resumen de tus actividades académicas</p>
                 </div>
                 <button
                     onClick={() => load(true)}
